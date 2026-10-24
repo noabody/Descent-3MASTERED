@@ -11,4 +11,3 @@ SET (LINUX_SOURCES
 	linux/registry.cpp
 	linux/registry.h
 	PARENT_SCOPE)
-

@@ -1256,7 +1256,7 @@ static void GL4PerfPresentState(const char* phase, int framebuffer_slot, bool po
 
 	int swap_interval = -999;
 #if defined(SDL3)
-	swap_interval = SDL_GL_GetSwapInterval();
+	SDL_GL_GetSwapInterval(&swap_interval);
 #elif defined(WIN32)
 	if (dwglGetSwapIntervalEXT)
 		swap_interval = dwglGetSwapIntervalEXT();
@@ -2019,7 +2019,7 @@ void GL4Renderer::GetVrrInfo(renderer_vrr_info* info)
 	if (dwglGetSwapIntervalEXT)
 		info->swap_interval = dwglGetSwapIntervalEXT();
 #elif defined(SDL3)
-	info->swap_interval = SDL_GL_GetSwapInterval();
+	SDL_GL_GetSwapInterval(&info->swap_interval);
 #endif
 	info->fullscreen = OpenGL_preferred_state.fullscreen;
 	// The Win32 "fullscreen" mode is a borderless desktop-sized window, not

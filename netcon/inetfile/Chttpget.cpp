@@ -236,7 +236,7 @@ void ChttpGet::GetFile(const char *URL,const char *localfile)
 	}
 
 //	if(df_pthread_create(&thread,NULL,HTTPObjThread,this)!=0)
-    thread = SDL_CreateThread(HTTPObjThread, this);
+    thread = SDL_CreateThread(HTTPObjThread, "HTTPObjThread", this);
 	if (thread == NULL)
 	{
 		fclose(LOCALFILE);
@@ -855,7 +855,7 @@ int http_Asyncgethostbyname(unsigned int *ip,int command, char *hostname)
 		}
 
 //		df_pthread_create(&thread,NULL,http_gethostbynameworker,newaslu);
-        newaslu->threadId = SDL_CreateThread(http_gethostbynameworker,newaslu);
+        newaslu->threadId = SDL_CreateThread(http_gethostbynameworker, "http_gethostbynameworker",newaslu);
 #endif
 		return 1;
 	}
@@ -917,7 +917,7 @@ int http_gethostbynameworker(void *parm)
 	{
 		lookup->error = true;
 		#ifdef __LINUX__
-		return NULL;
+		return 0;
 		#else
 		return;
 		#endif
@@ -931,6 +931,6 @@ int http_gethostbynameworker(void *parm)
 	mem_free(lookup);
 
 #ifdef __LINUX__
-	return NULL;
+	return 0;
 #endif
 }

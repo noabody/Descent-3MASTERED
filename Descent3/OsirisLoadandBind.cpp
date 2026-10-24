@@ -23,6 +23,8 @@
 #include "ddio.h"
 #include "manage.h"
 #include <stdlib.h>
+#include <vector>
+#include <string>
 #include "mem.h"
 #include "DllWrappers.h"
 #include "objinfo.h"
@@ -3223,14 +3225,10 @@ int Osiris_ExtractScriptsFromHog(int library_handle, bool is_mission_hog)
 
 	mprintf((0, "OSIRIS: Extracting Scripts From Hog\n"));
 
-	char filename[_MAX_PATH], temp_filename[_MAX_PATH];
-	char tempdir[_MAX_PATH], temp_file[_MAX_PATH], temp_fileext[_MAX_EXT];
-	char temp_realname[_MAX_PATH];
-
+	char tempdir[_MAX_PATH];
 	if (!OSIRIS_Extracted_script_dir)
 	{
 		strcpy(tempdir, Descent3_temp_directory);
-		//ddio_MakePath(tempdir,LocalD3Dir,"custom","cache",NULL);	//TODO: make real path here
 		OSIRIS_Extracted_script_dir = mem_strdup(tempdir);
 		if (!OSIRIS_Extracted_script_dir)
 			Error("Out of memory");
@@ -3240,34 +3238,44 @@ int Osiris_ExtractScriptsFromHog(int library_handle, bool is_mission_hog)
 		strcpy(tempdir, OSIRIS_Extracted_script_dir);
 	}
 
-	int count = 0;
-
-	char* script_extension;
 #if defined(__LINUX__)
-#if defined(MACOSX)
-	script_extension = "*.dylib";
+	const char *script_extension = "*.so";
+#elif defined(MACOSX)
+	const char *script_extension = "*.dylib";
 #else
-	script_extension = "*.so";
-#endif
-#else
-	script_extension = "*.dll";
+	const char *script_extension = "*.dll";
 #endif
 
-	int index;
-	index = _getfreeextractslot();
-	if (index == -1)
-	{
-		mprintf((0, "OSIRIS: Out of slots extracting scripts!!!!!!!!\n"));
-		Int3();
-		goto ex_error;
-	}
+	std::vector<std::string> found_files;
+	char filename[_MAX_PATH];
 
-	mprintf((0, "Search started\n"));
 	if (cf_LibraryFindFirst(library_handle, script_extension, filename))
 	{
-		mprintf((0, "	Found: %s...", filename));
-		if (!ddio_GetTempFileName(tempdir, "d3s", temp_filename))
+		do
+		{
+			found_files.push_back(filename);
+		} while (cf_LibraryFindNext(filename));
+	}
+	cf_LibraryFindClose();
+
+	int count = 0;
+	char temp_filename[_MAX_PATH], temp_file[_MAX_PATH], temp_fileext[_MAX_EXT];
+	char temp_realname[_MAX_PATH];
+
+	for (const auto &script_file : found_files)
+	{
+		int index = _getfreeextractslot();
+		if (index == -1)
+		{
+			mprintf((0, "OSIRIS: Out of slots extracting scripts!!!!!!!!\n"));
 			Int3();
+			break;
+		}
+
+		if (!ddio_GetTempFileName(tempdir, "d3s", temp_filename))
+		{
+			Int3();
+		}
 		else
 		{
 			ddio_SplitPath(temp_filename, NULL, temp_file, temp_fileext);
@@ -3276,66 +3284,18 @@ int Osiris_ExtractScriptsFromHog(int library_handle, bool is_mission_hog)
 			OSIRIS_Extracted_scripts[index].flags = OESF_USED;
 			OSIRIS_Extracted_scripts[index].temp_filename = mem_strdup(temp_file);
 
-			ddio_SplitPath(filename, NULL, temp_realname, NULL);
+			ddio_SplitPath(script_file.c_str(), NULL, temp_realname, NULL);
 			OSIRIS_Extracted_scripts[index].real_filename = mem_strdup(temp_realname);
 
 			if (is_mission_hog)
 				OSIRIS_Extracted_scripts[index].flags |= OESF_MISSION;
 
-			//extract it out
-			mprintf((0, "Extracting..."));
-			_extractscript(filename, temp_filename);
-			mprintf((0, "Done\n"));
-
+			_extractscript(const_cast<char*>(script_file.c_str()), temp_filename);
 			count++;
-
-			while (cf_LibraryFindNext(filename))
-			{
-				mprintf((0, "	Found: %s...", filename));
-
-				index = _getfreeextractslot();
-				if (index == -1)
-				{
-					mprintf((0, "OSIRIS: Out of slots extracting scripts!!!!!!!!\n"));
-					Int3();
-					goto ex_error;
-				}
-
-				//generate temp filename
-				if (!ddio_GetTempFileName(tempdir, "d3s", temp_filename))
-					Int3();
-				else
-				{
-					ddio_SplitPath(temp_filename, NULL, temp_file, temp_fileext);
-					strcat(temp_file, temp_fileext);
-
-					OSIRIS_Extracted_scripts[index].flags = OESF_USED;
-					OSIRIS_Extracted_scripts[index].temp_filename = mem_strdup(temp_file);
-
-					ddio_SplitPath(filename, NULL, temp_realname, NULL);
-					OSIRIS_Extracted_scripts[index].real_filename = mem_strdup(temp_realname);
-
-					if (is_mission_hog)
-						OSIRIS_Extracted_scripts[index].flags |= OESF_MISSION;
-
-					//extract it out
-					mprintf((0, "Extracting..."));
-					_extractscript(filename, temp_filename);
-					mprintf((0, "Done\n"));
-
-					count++;
-				}
-			}
 		}
 	}
 
-	mprintf((0, "Done Extracting\n"));
-
-ex_error:
-	cf_LibraryFindClose();
-
 	static bool atex = false;
-
 	if (!atex)
 	{
 		atexit(_clearextractedall);

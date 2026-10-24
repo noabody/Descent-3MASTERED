@@ -27,9 +27,11 @@
 
 #include "pserror.h"
 #include "pstring.h"
-#include "Application.h"
+#include "application.h"
 #include "ddio.h"
+#ifdef _WIN32
 #include "dinput.h"
+#endif
 
 #include "forcefeedback.h"
 

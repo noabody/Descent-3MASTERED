@@ -219,6 +219,9 @@ int LoadGameState(const char *pathname)
 	
 START_VERIFY_SAVEFILE(fp);
 	LGSAllocateXlateTables();
+	const char *campaign_file = GetMainCampaignFileForLevel(path, curlevel);
+	if (campaign_file)
+		strcpy(path, campaign_file);
 
 // read in header and do version check.
 	cf_ReadBytes((ubyte *)desc, sizeof(desc), fp);
@@ -248,9 +251,7 @@ START_VERIFY_SAVEFILE(fp);
 	curlevel = (ushort)cf_ReadShort(fp);
 	cf_ReadString(path, sizeof(path), fp);
 
-	const char *campaign_file = GetMainCampaignFileForLevel(path, curlevel);
-	if (campaign_file)
-		strcpy(path, campaign_file);
+
 
 //	must load mission and initialize level before reading in other data.
 	retval = LGSMission(path, curlevel);

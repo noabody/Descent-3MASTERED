@@ -103,38 +103,39 @@ void GatherArgs(char** argv)
 int FindArg(char* which)
 {
 	if (which == NULL)
-		return(0);
+		return (0);
 
-	char* argBuf = new char[strlen(which) + 3];
-	int i;
-
-	argBuf[0] = '\0';  // blank buffer.
+	// 1. First check for an EXACT match (handles -flag or --flag as typed)
+	for (int i = 1; i <= TotalArgs; i++)
+	{
+		if (strcasecmp(which, GameArgs[i]) == 0)
+		{
+			mprintf((0, "FindArg: Found [%s] at argument index (%d).", which, i));
+			return (i);
+		}
+	}
 
 #ifdef __LINUX__
-	if ((*which == '-') || (*which == '+'))  // change D3 args to GNU type.
+	// 2. Fallback: Convert single-dash "-flag" to double-dash "--flag"
+	if (*which == '-' && which[1] != '-')
 	{
-		strcpy(argBuf, "--");
-		which++;
-	} // if
+		char argBuf[MAX_CHARS_PER_ARG];
+		snprintf(argBuf, sizeof(argBuf), "--%s", which + 1);
+
+		for (int i = 1; i <= TotalArgs; i++)
+		{
+			if (strcasecmp(argBuf, GameArgs[i]) == 0)
+			{
+				mprintf((0, "FindArg: Found [%s] at argument index (%d).", argBuf, i));
+				return (i);
+			}
+		}
+	}
 #endif
 
-	strcat(argBuf, which);
-
-	for (i = 1; i <= TotalArgs; i++)
-	{
-		if (strcasecmp(argBuf, GameArgs[i]) == 0)
-		{
-			mprintf((0, "FindArg: Found [%s] at argument index (%d).",
-				argBuf, i));
-			delete[] argBuf;
-			return (i);
-		} // if
-	} // for
-
-	mprintf((0, "FindArg: Did not find [%s] on command line.\n", argBuf));
-	delete[] argBuf;
+	mprintf((0, "FindArg: Did not find [%s] on command line.\n", which));
 	return (0);
-} // FindArg
+}
 
 
 

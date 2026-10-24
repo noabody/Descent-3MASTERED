@@ -382,12 +382,14 @@ void GL4Renderer::WarmUpScenePipelines()
 	glGenBuffers(1, &vertex_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	const uintptr_t base_attribute_offset = offsetof(GL4PipelineWarmupVertex, attributes);
+
 	for (int attribute = 0; attribute < 15; attribute++)
 	{
 		glEnableVertexAttribArray(attribute);
 		glVertexAttribPointer(attribute, 4, GL_FLOAT, GL_FALSE,
 			sizeof(GL4PipelineWarmupVertex),
-			(const void*)offsetof(GL4PipelineWarmupVertex, attributes[attribute]));
+			(const void*)(base_attribute_offset + attribute * sizeof(GL4PipelineWarmupVertex::attributes[0])));
 	}
 	glEnableVertexAttribArray(15);
 	glVertexAttribIPointer(15, 1, GL_INT, sizeof(GL4PipelineWarmupVertex),

@@ -10,6 +10,33 @@ SET( CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS TRUE )
 
 PROJECT(Descent3Mastered VERSION 0.9.1)
 
+if(NOT DEFINED CHECKSUM)
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		set(CHECKSUM "2273889835UL")
+	else()
+		set(CHECKSUM "2273873307UL")
+	endif()
+endif()
+
+SET(D3_ENGINE_NAME "Descent 3MASTERED")
+SET(D3_GAMEDIR_DEFAULT "c:/games/Descent 3MASTERED/")
+
+IF (UNIX AND NOT APPLE)
+	SET(D3_ENGINE_NAME "3mastered")
+	SET(D3_GAMEDIR_DEFAULT "share/3mastered")
+ELSEIF (APPLE)
+	SET(D3_GAMEDIR_DEFAULT "~/Descent 3MASTERED")
+ENDIF()
+
+add_compile_definitions(
+	D3_ENGINE_NAME="${D3_ENGINE_NAME}"
+	D3_GAMEDIR_DEFAULT="${D3_GAMEDIR_DEFAULT}"
+	CHECKSUM=${CHECKSUM}
+)
+
+SET(D3_GAMEDIR "${D3_GAMEDIR_DEFAULT}" CACHE STRING
+	"Destination below the install prefix, or an absolute developer install path")
+
 function(add_hog_file HOG_NAME HOG_SRC_DIR)
 	string( REPLACE "." "_" HOG_TARGET ${HOG_NAME} )
 	
@@ -33,40 +60,56 @@ function(add_hog_file HOG_NAME HOG_SRC_DIR)
 endfunction()
 
 IF (UNIX)
-SET (D3_GAMEDIR "~/Descent 3MASTERED/" CACHE STRING
-	"Destination below the install prefix, or an absolute developer install path")
+	SET(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -Wno-write-strings")
+	SET(CMAKE_CXX_FLAGS "-O0 -g -Wno-write-strings -Wno-multichar")
+	SET(CMAKE_C_FLAGS "-O0 -g")
 
-  SET(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -Wno-write-strings -m32")
-  SET(CMAKE_CXX_COMPILER "g++")
-  SET(CMAKE_CXX_FLAGS "-O0 -g -Wno-write-strings -Wno-multichar -m32")
-  SET(CMAKE_C_FLAGS "-O0 -g -m32")
-  SET(CMAKE_C_COMPILER "gcc")
-  SET(CMAKE_FIND_LIBRARY_PREFIXES "lib")
-  SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-  FIND_PACKAGE( SDL REQUIRED )
-  FIND_PACKAGE( SDL_image REQUIRED )
-MESSAGE( "SDL Include Dir is " ${SDL_INCLUDE_DIR} )
+	set(CPM_DOWNLOAD_VERSION 0.40.2)
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+		message(STATUS "Downloading CPM.cmake v${CPM_DOWNLOAD_VERSION}...")
+		file(DOWNLOAD
+			"https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake"
+			"${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake"
+		)
+	endif()
+	include("${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+
+	CPMAddPackage(
+		NAME SDL3
+		GITHUB_REPOSITORY libsdl-org/SDL
+		GIT_TAG main
+		GIT_SHALLOW TRUE
+	)
+	add_definitions(-DUSE_SDL -DSDL3)
+
+	include_directories(SYSTEM
+		"${SDL3_SOURCE_DIR}/include"
+		"${SDL3_SOURCE_DIR}/include/SDL3"
+		"${SDL3_BINARY_DIR}/include"
+		"${SDL3_BINARY_DIR}/include/SDL3"
+		"${CMAKE_CURRENT_SOURCE_DIR}/lib"
+	)
+
+	# Force include linux_fix.h across all translation units
+	add_compile_options(-include "${CMAKE_CURRENT_SOURCE_DIR}/lib/linux/linux_fix.h")
+
+	SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -Wno-error -Wno-attributes")
 ENDIF()
 
 IF (UNIX AND NOT APPLE)
-  MESSAGE("Building for Linux")
-
-  ADD_DEFINITIONS( -D_DEBUG -D__LINUX__ -DLINUX -D_MAX_PATH=260 -D_MAX_FNAME=256 -D_REENRANT -DMONO -D__32BIT__ -DHAVEALLOCA_H -D_USE_OGL_ACTIVE_TEXTURES)
-  SET(PLATFORM_INCLUDES "lib/linux" ${SDL_INCLUDE_DIR} )
+	MESSAGE("Building for Linux")
+	ADD_DEFINITIONS(-D__LINUX__ -DLINUX -D_REENRANT -DMONO -DHAVEALLOCA_H -D_USE_OGL_ACTIVE_TEXTURES)
+	SET(PLATFORM_INCLUDES "lib/linux" ${SDL_INCLUDE_DIR})
 ENDIF()
 
 IF (APPLE)
-	SET(D3_GAMEDIR "~/Descent 3MASTERED" CACHE STRING
-		"Destination below the install prefix, or an absolute developer install path")
-  MESSAGE("Building for MAC OSX")
-  ADD_DEFINITIONS( -DMONO -D_DEBUG -D__LINUX__ -DLINUX -D_MAX_PATH=260 -D_MAX_FNAME=256 -D_REENRANT -DMACOSX=1 -D_USE_OGL_ACTIVE_TEXTURES)
-  SET(PLATFORM_INCLUDES "lib/linux" ${SDL_INCLUDE_DIR} "/usr/X11/include" )
+	MESSAGE("Building for MAC OSX")
+	ADD_DEFINITIONS( -DMONO -D_DEBUG -D__LINUX__ -DLINUX -D_MAX_PATH=260 -D_MAX_FNAME=256 -D_REENRANT -DMACOSX=1 -D_USE_OGL_ACTIVE_TEXTURES)
+	SET(PLATFORM_INCLUDES "lib/linux" ${SDL_INCLUDE_DIR} "/usr/X11/include" )
 ENDIF()
 
 IF (WIN32)
 	set(USE_SDL OFF CACHE BOOL "Builds with SDL rather than the Win32 code.")
-	SET(D3_GAMEDIR "c:/games/Descent 3MASTERED/" CACHE STRING
-		"Destination below the install prefix, or an absolute developer install path")
 	if (CMAKE_SIZEOF_VOID_P EQUAL 8)
 		set(OPENAL_ARCH_DIR "Win64")
 	else()
@@ -118,7 +161,8 @@ IF (WIN32)
 	SET (MIN_PLATFORM_LIBS wsock32.lib wininet.lib)
 ENDIF()
 IF (UNIX AND NOT APPLE)
-	SET (PLATFORM_LIBS ${SDL_LIBRARY} caca asound audio esd aa directfb m dl GLU)
+	find_package(OpenAL REQUIRED)
+	SET (PLATFORM_LIBS SDL3::SDL3 OpenAL::OpenAL m dl)
 	SET (MIN_PLATFORM_LIBS ${PLATFORM_LIBS}) #todo
 ENDIF()
 IF (APPLE)
@@ -126,6 +170,10 @@ IF (APPLE)
 	SET (MIN_PLATFORM_LIBS ${PLATFORM_LIBS}) #todo
 ENDIF()
 
+#From GZDOOM
+add_custom_target( revision_check ALL
+	COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_SOURCE_DIR}/tools/UpdateRevision.cmake" Descent3/gitinfo.h
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 #Hogdir stuff
 add_subdirectory(tools)
@@ -149,10 +197,16 @@ IF (WIN32)
 ENDIF()
 
 IF (UNIX)
-ADD_SUBDIRECTORY(linux)
-ADD_SUBDIRECTORY(dd_lnxsound)
-ADD_SUBDIRECTORY(lnxcontroller)
-ADD_SUBDIRECTORY(ddio_lnx)
+	if (USE_SDL)
+		ADD_SUBDIRECTORY(sdl)
+		ADD_SUBDIRECTORY(dd_sndlib)
+		ADD_SUBDIRECTORY(ddio_sdl)
+	else()
+		ADD_SUBDIRECTORY(linux)
+		ADD_SUBDIRECTORY(dd_lnxsound)
+		ADD_SUBDIRECTORY(lnxcontroller)
+		ADD_SUBDIRECTORY(ddio_lnx)
+	endif()
 ENDIF()
 
 ADD_SUBDIRECTORY (ddio_common)
@@ -183,18 +237,7 @@ ADD_SUBDIRECTORY (Descent3)
 ADD_SUBDIRECTORY (netcon/inetfile)
 #dependent on above
 ADD_SUBDIRECTORY (netcon)
-
-# Win64 cannot load the retail x86 Osiris modules, so ship native builds of all
-# first-party level/game scripts in a platform archive.  The legacy Unix script
-# packaging remains separate for now.
-IF(WIN32)
 ADD_SUBDIRECTORY (scripts)
-ENDIF()
-
-#From GZDOOM
-add_custom_target( revision_check ALL
-	COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_SOURCE_DIR}/tools/UpdateRevision.cmake" Descent3/gitinfo.h
-	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # set default cmake build type to Debug (None Debug Release RelWithDebInfo MinSizeRel)
 IF( NOT CMAKE_BUILD_TYPE )
@@ -202,7 +245,7 @@ SET( CMAKE_BUILD_TYPE "Debug" )
 ENDIF()
 
 SET (DESCENT3_SOURCES
-		${AUDIOENCODE_SORUCES}
+		${AUDIOENCODE_SOURCES}
 		${BITMAP_SOURCES}
 		${CFILE_SOURCES}
 		${D3MUSIC_SOURCES}
@@ -246,24 +289,28 @@ SET (DESCENT3_SOURCES
 	${WIN32_SOURCES}
 	Descent3.manifest)
 endif()
-
-#shared sources
-SET (DESCENT3_SOURCES
-	${DESCENT3_SOURCES}
-	${DD_SNDLIB_SOURCES}
-	Descent3.manifest)
 ENDIF()
 
 IF (UNIX)
+if (USE_SDL)
+SET (DESCENT3_SOURCES
+	${DESCENT3_SOURCES}
+	${LINUX_SOURCES}
+	${DDIO_SDL_SOURCES}
+	${SDL3_SOURCES}
+	${DD_SNDLIB_SOURCES}
+	${DDIO_SOURCES})
+else()
 SET (DESCENT3_SOURCES
 	${DESCENT3_SOURCES}
 	${LINUX_SOURCES}
 	${DD_LNXSOUND_SOURCES}
 	${DDIO_SOURCES})
+endif()
 ENDIF()
 
 add_executable(Descent3Mastered ${DESCENT3_SOURCES})
-set_target_properties(Descent3Mastered PROPERTIES OUTPUT_NAME "Descent 3MASTERED")
+set_target_properties(Descent3Mastered PROPERTIES OUTPUT_NAME "${D3_ENGINE_NAME}")
 
 if(WIN32)
 	set(BUILTIN_CONNECTOR_RC "${CMAKE_CURRENT_BINARY_DIR}/builtin_connectors.rc")
@@ -279,7 +326,7 @@ if(WIN32)
 	set_source_files_properties("${BUILTIN_CONNECTOR_RC}" PROPERTIES GENERATED TRUE)
 	target_sources(Descent3Mastered PRIVATE "${BUILTIN_CONNECTOR_RC}")
 endif()
-	
+
 IF (WIN32)
 	if (USE_SDL) #for convenience SDL will compile as a console app, and dump mono there
 		target_link_options(Descent3Mastered PUBLIC /SAFESEH:NO /NODEFAULTLIB:LIBC)
@@ -288,16 +335,16 @@ IF (WIN32)
 	endif()
 ENDIF()
 
-IF (UNIX AND NOT APPLE)
-	target_link_options(Descent3Mastered PUBLIC /usr/lib/libpulse-simple.so.0)
-ENDIF()
-	
 IF (APPLE)
 	target_link_options(Descent3Mastered PUBLIC -framework IOKit -framework Cocoa -framework OpenGL -framework Carbon)
 ENDIF()
 
 target_link_libraries(Descent3Mastered ${PLATFORM_LIBS})
-	
+
+if(UNIX AND NOT APPLE)
+    target_link_options(Descent3Mastered PRIVATE -rdynamic)
+endif()
+
 target_compile_definitions(Descent3Mastered PUBLIC -DMONO "$<$<CONFIG:RELEASE>:RELEASE>")
 target_compile_definitions(Descent3Mastered PUBLIC -DMONO "$<$<CONFIG:MINSIZEREL>:RELEASE>")
 target_compile_definitions(Descent3Mastered PUBLIC -DMONO "$<$<CONFIG:RELWITHDEBINFO>:RELEASE>")
@@ -315,8 +362,12 @@ add_library(dmfc SHARED ${DMFC_SOURCES})
 set_target_properties(dmfc PROPERTIES OUTPUT_NAME "dmfc3m")
 target_compile_definitions(dmfc PUBLIC -DOUTRAGE_VERSION)
 target_compile_definitions(dmfc PRIVATE -DDMFC_DLL)
-target_include_directories(dmfc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/netgames/includes")
+target_include_directories(dmfc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/netgames/includes" "${CMAKE_CURRENT_SOURCE_DIR}/Descent3")
+add_dependencies(dmfc revision_check)
 add_dependencies(Descent3Mastered revision_check descent3mastered_hog TCP-IP Tracker dmfc)
+IF (UNIX AND NOT APPLE)
+    add_dependencies(Descent3Mastered HogLinuxFull)
+ENDIF()
 if (WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
 	add_dependencies(Descent3Mastered descent3mastered_win_hog ${NETGAME_TARGETS})
 endif()

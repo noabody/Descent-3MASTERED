@@ -885,14 +885,17 @@ static void GL4SetDrawVertexAttributes()
 	glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex), (const void*)offsetof(gl_vertex, motion_previous_world_position));
 
 	//attribs 7-14: perspective-correct per-vertex field static specular sources
+	const uintptr_t base_center_offset = offsetof(gl_vertex, field_specular_center);
+	const uintptr_t base_color_offset = offsetof(gl_vertex, field_specular_color);
+
 	for (int i = 0; i < MAX_SPECULARS; i++)
 	{
 		glEnableVertexAttribArray(7 + i);
 		glVertexAttribPointer(7 + i, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex),
-			(const void*)offsetof(gl_vertex, field_specular_center[i]));
+			(const void*)(base_center_offset + i * sizeof(gl_vertex::field_specular_center[0])));
 		glEnableVertexAttribArray(11 + i);
 		glVertexAttribPointer(11 + i, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex),
-			(const void*)offsetof(gl_vertex, field_specular_color[i]));
+			(const void*)(base_color_offset + i * sizeof(gl_vertex::field_specular_color[0])));
 	}
 }
 

@@ -446,7 +446,7 @@ int AutoConnectPXO()
 	if (port)
 	{
 		//terminate the hostname
-		*port = NULL;
+		*port = '\0';
 		//Increment to the first character of the port name
 		port++;
 		//get the port number
@@ -458,7 +458,7 @@ int AutoConnectPXO()
 		if (portarg)
 			strcpy(Auto_login_port, GameArgs[portarg + 1]);
 		else
-			Auto_login_port[0] = NULL;
+			Auto_login_port[0] = '\0';
 	}
 
 	//ddio_MakePath(seldll,Base_directory,"online","parallax online.d3c",NULL);
@@ -485,7 +485,7 @@ int AutoConnectLANIP()
 			if (port)
 			{
 				//terminate the hostname
-				*port = NULL;
+				*port = '\0';
 				//Increment to the first character of the port name
 				port++;
 				//get the port number
@@ -503,7 +503,7 @@ int AutoConnectLANIP()
 		if (portarg)
 			strcpy(Auto_login_port, GameArgs[portarg + 1]);
 		else
-			Auto_login_port[0] = NULL;
+			Auto_login_port[0] = '\0';
 	}
 	AutomatedCaptureLog("network LAN auto-connect connector host=%s port=%s", Auto_login_addr,
 		Auto_login_port[0] ? Auto_login_port : "<default>");

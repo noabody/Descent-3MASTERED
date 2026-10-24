@@ -25,5 +25,6 @@ else()
 		sdl/sdlcontroller.h
 		sdl/registry.cpp
 		sdl/registry.h
+		sdl/sdldebug.cpp
 		PARENT_SCOPE)
 endif()

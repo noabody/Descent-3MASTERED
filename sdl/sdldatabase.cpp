@@ -30,7 +30,7 @@
 #endif
 
 #include "appdatabase.h"
-#include "linux/lnxdatabase.h"
+#include "sdl/SDLDatabase.h"
 #include "pserror.h"
 #include "mono.h"
 #include "pserror.h"
@@ -48,9 +48,6 @@
 
 oeSDLAppDatabase::oeSDLAppDatabase()
 {
-    //Open up the database file, for reading, read in all data and keep it in memory
-    //then close the database 
-
 #ifdef WIN32
     const char* prefPath = (char*)SDL_GetUserFolder(SDL_FOLDER_SAVEDGAMES);
     std::string filename = prefPath;
@@ -59,23 +56,28 @@ oeSDLAppDatabase::oeSDLAppDatabase()
     filename += '\\';
 
     ddio_CreateDir(filename.c_str());
-
     filename += REGISTRY_FILENAME;
 
-	// The native database is created before the general user-directory import,
-	// so import the previous registry file here on first launch as well.
-	std::string legacy_filename = prefPath;
-	legacy_filename += '\\';
-	legacy_filename += ENGINE_LEGACY_NAME;
-	legacy_filename += '\\';
-	legacy_filename += ENGINE_LEGACY_NAME_NO_SPACE ".registry";
-	CopyFileA(legacy_filename.c_str(), filename.c_str(), TRUE);
-
+    std::string legacy_filename = prefPath;
+    legacy_filename += '\\';
+    legacy_filename += ENGINE_LEGACY_NAME;
+    legacy_filename += '\\';
+    legacy_filename += ENGINE_LEGACY_NAME_NO_SPACE ".registry";
+    CopyFileA(legacy_filename.c_str(), filename.c_str(), TRUE);
 #else
-#error "oeSDLAppDatabase::oeSDLAppDatabase: Implment more suitable path for non-windows platforms here"
-#endif
+    char* userDir = ddio_GetUserDir(NULL);
+    std::string baseDir = userDir ? userDir : ".";
+    if (userDir) {
+        free(userDir);
+    }
 
-    //sprintf(fileName, "%s/%s", prefPath, REGISTRY_FILENAME);
+    while (!baseDir.empty() && (baseDir.back() == '/' || baseDir.back() == '\\')) {
+        baseDir.pop_back();
+    }
+
+    ddio_CreateDir(baseDir.c_str());
+    std::string filename = baseDir + "/" + REGISTRY_FILENAME;
+#endif
 
     database = new SDLRegistry(filename.c_str());
     database->Import();

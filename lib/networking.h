@@ -65,7 +65,7 @@ inline void INADDR_GET_SUN_SUNB(struct in_addr* st,unsigned char *s_b1,unsigned 
 
 #if __SUPPORT_IPX
 #include <linux/types.h>
-#include <linux/ipx.h>
+
 #endif
 
 #include <sys/types.h>

@@ -72,6 +72,13 @@ struct path_entry
 	ubyte	specific;			//if non-zero, only for specific extensions
 };
 
+static int hog_entry_case_cmp(const void *a, const void *b)
+{
+    const library_entry *entryA = (const library_entry *)a;
+    const library_entry *entryB = (const library_entry *)b;
+    return strcasecmp(entryA->name, entryB->name);
+}
+
 #define MAX_PATHS			100
 path_entry paths[MAX_PATHS];
 int N_paths=0;
@@ -215,6 +222,8 @@ int cf_OpenLibrary(const char *libname)
 		lib->entries[i].timestamp  = entry.timestamp;
 		offset += lib->entries[i].length;
 	}
+	//sort binary searches for case sensitive filesystems
+	qsort(lib->entries, lib->nfiles, sizeof(library_entry), hog_entry_case_cmp);
 	//assign a handle
 	lib->handle = ++lib_handle;
 	//Save the file pointer
@@ -358,6 +367,21 @@ CFILE *cf_OpenFileInLibrary(const char *filename,int libhandle)
 			last = i - 1;
 	}
 
+	// Linux fix: If binary search failed, fall back to linear search
+	if (!found)
+	{
+		for (int j = 0; j < lib->nfiles; j++)
+		{
+			if (!stricmp(filename, lib->entries[j].name))
+			{
+				i = j;
+				found = 1;
+				break;
+			}
+		}
+	}
+
+
 	if(!found)
 		return NULL;	// file not in library
 
@@ -430,10 +454,25 @@ CFILE *open_file_in_lib(const char *filename)
 				last = i - 1;
 		}
 
+		// Linux fix: If binary search failed, fall back to linear search
+		if (!found)
+		{
+			for (int j = 0; j < lib->nfiles; j++)
+			{
+				if (!stricmp(filename, lib->entries[j].name))
+				{
+					i = j;
+					found = 1;
+					break;
+				}
+			}
+		}
+
+
 		if (found) 
 		{
-  			FILE *fp;
-  			int r;
+			FILE *fp;
+			int r;
 			//See if there's an available FILE
 			if (lib->file) 
 			{

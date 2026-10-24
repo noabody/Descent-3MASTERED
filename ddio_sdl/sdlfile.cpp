@@ -33,6 +33,7 @@
 #include "pserror.h"
 #include "ddio.h"
 #include "mem.h"
+#include "enginebrand.h"
 
 //	---------------------------------------------------------------------------
 //	File operations
@@ -62,7 +63,7 @@ bool ddio_SetWorkingDir(const char* path)
 #ifdef WIN32
 	return (SetCurrentDirectory(path)) ? true : false;
 #else
-#error "ddio_SetWorkingDir: Not implemented for current platform"
+	return (chdir(path) == 0);
 #endif
 }
 
@@ -248,7 +249,11 @@ bool ddio_DirExists(const char* path)
 //		the last argument in the list of sub dirs *MUST* be NULL to terminate the list
 void ddio_MakePath(char* newPath, const char* absolutePathHeader, const char* subDir, ...)
 {
-    const char	delimiter = '\\';
+	#ifdef _WIN32
+	    const char	delimiter = '\\';
+	#else
+		const char delimiter = '/';
+	#endif
     va_list		args;
     char* currentDir = NULL;
     int			pathLength = 0;
@@ -429,41 +434,36 @@ void ddio_FindFileFetchResult(int num, char* buffer)
 
 bool ddio_FindFileStart(const char* wildcard, char* namebuf)
 {
-    std::string wildcardstr = wildcard;
-    std::string pattern;
-
-    ddio_StupidPathSplit(wildcardstr, DDIO_glob_dir, pattern);
-
-#ifdef WIN32
-    SDL_GlobFlags flags = SDL_GLOB_CASEINSENSITIVE;
-#else
-    SDL_GlobFlags flags = 0;
-#endif
+    std::string w = wildcard;
+    std::string p;
+    ddio_StupidPathSplit(w, DDIO_glob_dir, p);
 
     DDIO_next_glob = 0;
+    DDIO_glob = SDL_GlobDirectory(DDIO_glob_dir.c_str(), p.c_str(), SDL_GLOB_CASEINSENSITIVE, &DDIO_glob_count);
 
-    DDIO_glob = SDL_GlobDirectory(DDIO_glob_dir.c_str(), pattern.c_str(), flags, &DDIO_glob_count);
-    if (DDIO_glob_count == 0)
-    {
-        namebuf[0] = '\0';
-        return false;
-    }
-    else
-    {
-        ddio_FindFileFetchResult(DDIO_next_glob++, namebuf);
-        return true;
-    }
-}
-
-bool ddio_FindNextFile(char* namebuf)
-{
-    if (DDIO_glob == nullptr || DDIO_next_glob >= DDIO_glob_count)
-    {
+    if (!DDIO_glob || DDIO_glob_count == 0) {
+        if (DDIO_glob) {
+            SDL_free(DDIO_glob);
+        }
+        DDIO_glob = nullptr;
+        DDIO_glob_count = 0;
         namebuf[0] = '\0';
         return false;
     }
 
     ddio_FindFileFetchResult(DDIO_next_glob++, namebuf);
+    return true;
+}
+
+bool ddio_FindNextFile(char* namebuf)
+{
+    if (DDIO_glob == nullptr || DDIO_next_glob >= DDIO_glob_count) {
+        namebuf[0] = '\0';
+        return false;
+    }
+
+    ddio_FindFileFetchResult(DDIO_next_glob++, namebuf);
+    return true;
 }
 
 void ddio_FindFileClose()
@@ -474,31 +474,44 @@ void ddio_FindFileClose()
 
 char* ddio_GetUserDir(const char* extraname)
 {
-    const char* savepath = SDL_GetUserFolder(SDL_FOLDER_SAVEDGAMES);
+    const char* p = SDL_GetUserFolder(SDL_FOLDER_SAVEDGAMES);
+    std::string b;
 
-    if (savepath == nullptr)
-        Error("ddio_GetUserDir: SDL_GetUserFolder failed!");
-
-    int length = strlen(savepath);
-
-    int extrachars = 0;
-    if (extraname)
-        extrachars = strlen(extraname); //[ISB] one for the path separator
-
-    char* narrowstr = (char*)malloc(length + extrachars + 1);
-    if (narrowstr == nullptr)
-    {
-        Error("ddio_GetUserDir: Can't allocate narrowstr");
+    if (p && strlen(p) > 0) {
+        b = p;
+    } else {
+        const char* home = getenv("HOME");
+        if (home && strlen(home) > 0) {
+            b = std::string(home) + "/.local/share/" + ENGINE_NAME;
+        } else {
+            b = ".";
+        }
     }
 
-    strcpy(narrowstr, savepath);
-    if (extraname)
-    {
-        //The strcpy will null terminate this.
-        strcpy(&narrowstr[length], extraname);
+    while (!b.empty() && (b.back() == '/' || b.back() == '\\')) {
+        b.pop_back();
     }
 
-    return narrowstr;
+    if (extraname && strlen(extraname) > 0) {
+        std::string ex = extraname;
+        std::replace(ex.begin(), ex.end(), '\\', '/');
+
+        while (!ex.empty() && (ex.front() == '/' || ex.front() == '\\')) {
+            ex.erase(0, 1);
+        }
+
+        if (ex != ENGINE_NAME && ex != "Descent3" && ex != "descent3") {
+            b += "/" + ex;
+        }
+    }
+
+    char* str = static_cast<char*>(malloc(b.size() + 1));
+    if (!str) {
+        Error("ddio_GetUserDir: Cannot allocate string buffer");
+    }
+
+    strcpy(str, b.c_str());
+    return str;
 }
 
 //	 pass in a pathname (could be from ddio_SplitPath), root_path will have the drive name.
@@ -522,6 +535,7 @@ void ddio_GetRootFromPath(const char* srcPath, char* root_path)
 //	retrieve root names, free up roots array (allocated with malloc) after use
 int ddio_GetFileSysRoots(char** roots, int max_roots)
 {
+	#ifdef WIN32
     char buffer[100];
 
     int ret = GetLogicalDriveStrings(100, buffer);
@@ -558,12 +572,25 @@ int ddio_GetFileSysRoots(char** roots, int max_roots)
             done = true;
     }
     return count;
+    #else
+    if (max_roots <= 0 || !roots) {
+        return 0;
+    }
+
+    roots[0] = (char*)mem_malloc(2);
+    if (!roots[0]) {
+        return 0;
+    }
+
+    strcpy(roots[0], "/");
+    return 1;
+    #endif
 }
 
 //	given a path, it cleans it up (if the path is c:\windows\..\dos it would make it c:\dos)
 //	srcPath is the original path
 //	dest is the finished cleaned path.
-//		dest should be at least _MAX_PATH in size
+//	dest should be at least _MAX_PATH in size
 void ddio_CleanPath(char* dest, const char* srcPath)
 {
     strcpy(dest, srcPath);
@@ -737,7 +764,16 @@ bool ddio_CopyFile(const char* srcfile, const char* destfile)
 
     return false;
 #else
-#error "ddio_CopyFile: Not implemented for this platform!"
+	FILE* source = fopen(srcfile, "rb");
+	if (!source) return false;
+	FILE* dest = fopen(destfile, "wb");
+	if (!dest) { fclose(source); return false; }
+	char buf[8192];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), source)) > 0) { fwrite(buf, 1, n, dest); }
+	fclose(source);
+	fclose(dest);
+	return true;
 #endif
 }
 

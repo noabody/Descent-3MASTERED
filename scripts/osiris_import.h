@@ -24,9 +24,7 @@
 #include "osiris_common.h"
 
 #ifdef __LINUX__
-#ifndef MACOSX
-typedef unsigned int size_t;
-#endif
+#include <stddef.h>
 #include <stdarg.h>
 void _splitpath(const char *path,char *drive,char *dir,char *fname,char *ext);
 int _vsnprintf(char *buffer,size_t count,const char *format,va_list argptr);
@@ -396,7 +394,7 @@ OSIRISEXTERN MSafe_DoPowerup_fp MSafe_DoPowerup;
 // int Obj_Create()(ubyte type,ushort id,int roomnum,vector *pos,const matrix *orient,int parent_handle)
 typedef int( *Obj_Create_fp)(ubyte type,ushort id,int roomnum,vector *pos,const matrix *orient ,int parent_handle,vector *initial_velocity);
 OSIRISEXTERN Obj_Create_fp Obj_CreateFP;
-inline int Obj_Create(ubyte type,ushort id,int roomnum,vector *pos,const matrix *orient=NULL,int parent_handle=NULL, vector *initial_velocity=NULL)
+inline int Obj_Create(ubyte type,ushort id,int roomnum,vector *pos,const matrix *orient=NULL,int parent_handle=0, vector *initial_velocity=NULL)
 {
   return Obj_CreateFP(type,id,roomnum,pos,orient,parent_handle,initial_velocity);
 }
