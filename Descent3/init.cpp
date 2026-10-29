@@ -1535,7 +1535,7 @@ void InitIOSystems(bool editor)
 		{
 			if(i=='\\')
 			{
-				Base_directory[i] = NULL;
+				Base_directory[i] = '\0';
 			}
 		}
 		mprintf((0,"Using working directory of %s\n",Base_directory));
@@ -1546,6 +1546,21 @@ void InitIOSystems(bool editor)
 	}
 
 	ddio_SetWorkingDir(Base_directory);
+
+	// Register Base_directory as the primary search directory
+	cf_AddBaseDirectory(Base_directory);
+
+	// Register any -additionaldir paths passed on command line
+	int additionaldirarg = FindArg("-additionaldir");
+	if (additionaldirarg > 0 && GameArgs[additionaldirarg + 1])
+	{
+		const char* extra_dir = GameArgs[additionaldirarg + 1];
+		if (extra_dir && *extra_dir)
+		{
+			cf_AddBaseDirectory(extra_dir);
+			mprintf((0, "Added additional directory: %s\n", extra_dir));
+		}
+	}
 
 	char portablepath[MAX_PATH];
 	char legacy_portablepath[MAX_PATH];
@@ -1569,7 +1584,7 @@ void InitIOSystems(bool editor)
 	else
 		MigrateLegacyUserData(userdir);
 
-	//If the install isn't flagged as portable, 
+	//If the install isn't flagged as portable,
 	if (!portableexists && !Portable)
 	{
 		if (!ddio_DirExists(userdir))
@@ -1666,59 +1681,37 @@ void InitIOSystems(bool editor)
 	#endif
 	}
 
-	//Init hogfiles
+	// Init hogfiles using relative names so cf_OpenLibrary resolves them across all Base_directories
 	int d3_hid=-1,extra_hid=-1,extra1_hid=-1,merc_hid=-1,sys_hid=-1,extra13_hid=-1,engine_hid=-1;
 #if defined(_WIN64)
 	int engine_win_hid=-1;
 #endif
-	char fullname[_MAX_PATH];
 
 	#ifdef DEMO
-//DAJ	d3_hid = cf_OpenLibrary("d3demo.hog");
-	ddio_MakePath(fullname, LocalD3Dir, "d3demo.hog", NULL);
+	d3_hid = cf_OpenLibrary("d3demo.hog");
 	#else
-	ddio_MakePath(fullname, LocalD3Dir, "d3.hog", NULL);
+	d3_hid = cf_OpenLibrary("d3.hog");
 	#endif
-	d3_hid = cf_OpenLibrary(fullname);
 
 	#ifdef __LINUX__
-//DAJ	sys_hid = cf_OpenLibrary("d3-linux.hog");
-		ddio_MakePath(fullname, LocalD3Dir, "d3-linux.hog", NULL);
-		sys_hid = cf_OpenLibrary(fullname);
-	#endif	
+	sys_hid = cf_OpenLibrary("d3-linux.hog");
+	#endif
 	#ifdef MACOSX
-		ddio_MakePath(fullname, LocalD3Dir, "d3-osx.hog", NULL);
-		sys_hid = cf_OpenLibrary(fullname);
-	#endif	
-	
+	sys_hid = cf_OpenLibrary("d3-osx.hog");
+	#endif
 
-	//Open this file if it's present for stuff we might add later
-	ddio_MakePath(fullname, LocalD3Dir, "extra.hog", NULL);
-	extra_hid = cf_OpenLibrary(fullname);
+	extra_hid = cf_OpenLibrary("extra.hog");
+	extra1_hid = cf_OpenLibrary("extra1.hog");
+	merc_hid = cf_OpenLibrary("merc.hog");
+	extra13_hid = cf_OpenLibrary("extra13.hog");
 
-	//Nonsense for the steam version which packs Merc differently
-	ddio_MakePath(fullname, LocalD3Dir, "extra1.hog", NULL);
-	extra1_hid = cf_OpenLibrary(fullname);
-
-	//Try the normal merc.hog for old installs.
-	ddio_MakePath(fullname, LocalD3Dir, "merc.hog", NULL);
-	merc_hid = cf_OpenLibrary(fullname);
-
-	// Open this for extra 1.3 code (Black Pyro, etc)
-	//BUG: Should this actually be mounted after merc.hog?
-	ddio_MakePath(fullname, LocalD3Dir, "extra13.hog", NULL);
-	extra13_hid = cf_OpenLibrary(fullname);
-
-	// Library lookup is last-opened-first.  Mount engine-owned resources after
+	// Library lookup is last-opened-first. Mount engine-owned resources after
 	// the retail archives so fixes and upgraded assets in descent3mastered.hog can
-	// intentionally replace their original counterparts.  Missions remain
-	// later so mission-local content keeps the highest priority.
-	ddio_MakePath(fullname, Working_directory, "descent3mastered.hog", nullptr);
-	engine_hid = cf_OpenLibrary(fullname);
+	// intentionally replace their original counterparts.
+	engine_hid = cf_OpenLibrary("descent3mastered.hog");
 	if (engine_hid == 0)
 	{
-		ddio_MakePath(fullname, Working_directory, "piccuengine.hog", nullptr);
-		engine_hid = cf_OpenLibrary(fullname);
+		engine_hid = cf_OpenLibrary("piccuengine.hog");
 		if (engine_hid != 0)
 			mprintf((0, "Using legacy piccuengine.hog; replace it with descent3mastered.hog.\n"));
 		else
@@ -1726,19 +1719,29 @@ void InitIOSystems(bool editor)
 	}
 
 #if defined(_WIN64)
-	// Retail Windows archives contain x86 Osiris DLLs.  Mount native first-party
-	// replacements after the common engine archive, while leaving mission-local
-	// content mounted later with the highest resource priority.
-	ddio_MakePath(fullname, Working_directory, "descent3mastered-win.hog", nullptr);
-	engine_win_hid = cf_OpenLibrary(fullname);
+	// Retail Windows archives contain x86 Osiris DLLs. Mount native first-party
+	// replacements after the common engine archive.
+	engine_win_hid = cf_OpenLibrary("descent3mastered-win.hog");
 	if (engine_win_hid == 0)
 	{
-		ddio_MakePath(fullname, Working_directory, "piccuengine-win.hog", nullptr);
-		engine_win_hid = cf_OpenLibrary(fullname);
+		engine_win_hid = cf_OpenLibrary("piccuengine-win.hog");
 		if (engine_win_hid != 0)
 			mprintf((0, "Using legacy piccuengine-win.hog; replace it with descent3mastered-win.hog.\n"));
 		else
 			Error("Cannot find descent3mastered-win.hog file required by the 64-bit build!");
+	}
+#endif
+
+#if defined(__LINUX__)
+	int engine_linux_hid = -1;
+	engine_linux_hid = cf_OpenLibrary("descent3mastered-linux.hog");
+	if (engine_linux_hid == 0)
+	{
+		engine_linux_hid = cf_OpenLibrary("descent3mastered.hog");
+		if (engine_linux_hid == 0)
+		{
+			Error("Cannot find descent3mastered.hog file required by the Linux build!");
+		}
 	}
 #endif
 
@@ -1766,7 +1769,7 @@ void InitIOSystems(bool editor)
 
 		// make the full path (it is forced to be on the harddrive since it contains
 		// textures and stuff).
-		ddio_MakePath(path_to_mission,LocalD3Dir,"missions",filename,NULL);
+		ddio_MakePath(path_to_mission,"missions",filename,NULL);
 		if(cfexist(path_to_mission))
 		{
 			cf_OpenLibrary(path_to_mission);
@@ -1786,6 +1789,10 @@ void InitIOSystems(bool editor)
 	// Extraction lookup is first-match-wins.  Register the native replacements
 	// before the x86 retail modules with the same names.
 	Osiris_ExtractScriptsFromHog(engine_win_hid, false);
+#endif
+#if defined(__LINUX__)
+	if (engine_linux_hid != 0)
+		Osiris_ExtractScriptsFromHog(engine_linux_hid, false);
 #endif
 	if(extra13_hid != 0)
 		Osiris_ExtractScriptsFromHog(extra13_hid,false);
@@ -2184,7 +2191,7 @@ bool CheckCdForValidity(int cd);
 			pport = strchr(ipparse,':');
 			if(pport)
 			{
-				*pport = NULL;
+				*pport = '\0';
 				pport++;
 				port = atoi(pport);
 			}

@@ -226,8 +226,8 @@ void GL4Renderer::InitShaders()
 	lastshaderprog = nullptr;
 	pipeline_warmup_next = 0;
 	glGenBuffers(1, &commonbuffername);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, commonbuffername);
-	glBufferData(GL_COPY_WRITE_BUFFER, sizeof(CommonBlock) * 35, nullptr, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER, commonbuffername);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(CommonBlock) * 35, nullptr, GL_DYNAMIC_DRAW);
 	glBindBufferBase(GL_UNIFORM_BUFFER, COMMON_BINDING, commonbuffername);
 
 #ifdef _DEBUG
@@ -238,8 +238,8 @@ void GL4Renderer::InitShaders()
 
 	//The legacy common buffer uses the ortho matrix as a passthrough.
 	glGenBuffers(1, &legacycommonbuffername);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, legacycommonbuffername);
-	glBufferData(GL_COPY_WRITE_BUFFER, sizeof(CommonBlock), nullptr, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER, legacycommonbuffername);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(CommonBlock), nullptr, GL_DYNAMIC_DRAW);
 	glBindBufferBase(GL_UNIFORM_BUFFER, LEGACY_BINDING, legacycommonbuffername);
 
 #ifdef _DEBUG
@@ -249,8 +249,8 @@ void GL4Renderer::InitShaders()
 #endif
 
 	glGenBuffers(1, &specularbuffername);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, specularbuffername);
-	glBufferData(GL_COPY_WRITE_BUFFER, sizeof(SpecularBlock), nullptr, GL_STREAM_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER, specularbuffername);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(SpecularBlock), nullptr, GL_STREAM_DRAW);
 	glBindBufferBase(GL_UNIFORM_BUFFER, SPECULAR_BINDING, specularbuffername);
 
 #ifdef _DEBUG
@@ -260,8 +260,8 @@ void GL4Renderer::InitShaders()
 #endif
 
 	glGenBuffers(1, &fogbuffername);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, fogbuffername);
-	glBufferData(GL_COPY_WRITE_BUFFER, sizeof(RoomBlock) * 100, nullptr, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER, fogbuffername);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(RoomBlock) * 100, nullptr, GL_DYNAMIC_DRAW);
 	glBindBufferBase(GL_UNIFORM_BUFFER, ROOM_BINDING, fogbuffername);
 
 #ifdef _DEBUG
@@ -271,8 +271,8 @@ void GL4Renderer::InitShaders()
 #endif
 
 	glGenBuffers(1, &terrainfogbuffername);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, terrainfogbuffername);
-	glBufferData(GL_COPY_WRITE_BUFFER, sizeof(TerrainFogBlock) * TERRAIN_FOG_COUNTER_MAX, nullptr, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER, terrainfogbuffername);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(TerrainFogBlock) * TERRAIN_FOG_COUNTER_MAX, nullptr, GL_DYNAMIC_DRAW);
 	glBindBufferBase(GL_UNIFORM_BUFFER, TERRAIN_FOG_BINDING, terrainfogbuffername);
 
 #ifdef _DEBUG
@@ -382,12 +382,14 @@ void GL4Renderer::WarmUpScenePipelines()
 	glGenBuffers(1, &vertex_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	const uintptr_t base_attribute_offset = offsetof(GL4PipelineWarmupVertex, attributes);
+
 	for (int attribute = 0; attribute < 15; attribute++)
 	{
 		glEnableVertexAttribArray(attribute);
 		glVertexAttribPointer(attribute, 4, GL_FLOAT, GL_FALSE,
 			sizeof(GL4PipelineWarmupVertex),
-			(const void*)offsetof(GL4PipelineWarmupVertex, attributes[attribute]));
+			(const void*)(base_attribute_offset + attribute * sizeof(GL4PipelineWarmupVertex::attributes[0])));
 	}
 	glEnableVertexAttribArray(15);
 	glVertexAttribIPointer(15, 1, GL_INT, sizeof(GL4PipelineWarmupVertex),
@@ -563,13 +565,18 @@ void GL4Renderer::BindPipeline(uint32_t handle)
 
 void GL4Renderer::UpdateCommon(float* projection, float* modelview, int depth)
 {
+	// Restrict depth to allocated array bounds (0..34)
+	if (depth < 0 || depth >= 35)
+	{
+		mprintf((1, "GL4 UpdateCommon: depth %d out of bounds (max 34)\n", depth));
+		return;
+	}
+
 	CommonBlock newblock;
 	memcpy(newblock.projection, projection, sizeof(newblock.projection));
 	memcpy(newblock.modelview, modelview, sizeof(newblock.modelview));
 
-	//Cache the main-scene projection for AO. depth==0 is the regular world
-	//pass; instance/portal draws use deeper slots which we don't care about
-	//for ambient occlusion (it runs against the main framebuffer only).
+	// Cache main-scene projection matrices for AO pass
 	if (depth == 0)
 	{
 		memcpy(last_projection, projection, sizeof(last_projection));
@@ -581,8 +588,27 @@ void GL4Renderer::UpdateCommon(float* projection, float* modelview, int depth)
 		have_current_inverse_modelview = InvertMatrix4(modelview, current_inverse_modelview);
 	}
 
-	glBindBuffer(GL_COPY_WRITE_BUFFER, commonbuffername);
-	glBufferSubData(GL_COPY_WRITE_BUFFER, sizeof(CommonBlock) * depth, sizeof(CommonBlock), &newblock);
+	if (!commonbuffername) {
+		glGenBuffers(1, &commonbuffername);
+		glBindBuffer(GL_UNIFORM_BUFFER, commonbuffername);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(CommonBlock) * 35, nullptr, GL_DYNAMIC_DRAW);
+	} else {
+		glBindBuffer(GL_UNIFORM_BUFFER, commonbuffername);
+	}
+
+	GLint mapped = GL_FALSE;
+	glGetBufferParameteriv(GL_UNIFORM_BUFFER, GL_BUFFER_MAPPED, &mapped);
+
+	if (mapped == GL_FALSE)
+	{
+		glBufferSubData(GL_UNIFORM_BUFFER, sizeof(CommonBlock) * depth, sizeof(CommonBlock), &newblock);
+	}
+	else
+	{
+		mprintf((1, "GL4 UpdateCommon: commonbuffername is currently mapped!\n"));
+	}
+
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 #ifdef _DEBUG
 	GLenum err = glGetError();
@@ -600,8 +626,12 @@ void GL4Renderer::SetCommonDepth(int depth)
 
 void GL4Renderer::UpdateSpecular(SpecularBlock* specularstate)
 {
-	glBindBuffer(GL_COPY_WRITE_BUFFER, specularbuffername);
-	glBufferSubData(GL_COPY_WRITE_BUFFER, 0, sizeof(SpecularBlock), specularstate);
+	if (!specularbuffername || !specularstate)
+		return;
+
+	glBindBuffer(GL_UNIFORM_BUFFER, specularbuffername);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(SpecularBlock), specularstate);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 #ifdef _DEBUG
 	GLenum err = glGetError();
@@ -612,8 +642,12 @@ void GL4Renderer::UpdateSpecular(SpecularBlock* specularstate)
 
 void GL4Renderer::UpdateFogBrightness(RoomBlock* roomstate, int numrooms)
 {
-	glBindBuffer(GL_COPY_WRITE_BUFFER, fogbuffername);
-	glBufferSubData(GL_COPY_WRITE_BUFFER, 0, sizeof(RoomBlock) * numrooms, roomstate);
+	if (!fogbuffername || !roomstate)
+		return;
+
+	glBindBuffer(GL_UNIFORM_BUFFER, fogbuffername);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(RoomBlock) * numrooms, roomstate);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 #ifdef _DEBUG
 	GLenum err = glGetError();
@@ -635,21 +669,29 @@ void GL4Renderer::SetCurrentRoomNum(int roomblocknum)
 
 void GL4Renderer::UpdateTerrainFog(float color[4], float start, float end)
 {
+	if (!terrainfogbuffername) {
+		glGenBuffers(1, &terrainfogbuffername);
+		glBindBuffer(GL_UNIFORM_BUFFER, terrainfogbuffername);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(TerrainFogBlock) * TERRAIN_FOG_COUNTER_MAX, nullptr, GL_DYNAMIC_DRAW);
+	} else {
+		glBindBuffer(GL_UNIFORM_BUFFER, terrainfogbuffername);
+	}
+
 	TerrainFogBlock block;
 	memcpy(block.color, color, sizeof(float) * 3);
 	block.start_dist = start;
 	block.end_dist = end;
 
-	glBindBuffer(GL_COPY_WRITE_BUFFER, terrainfogbuffername);
 	terrainfogcounter++;
-	if (terrainfogcounter == TERRAIN_FOG_COUNTER_MAX)
+	if (terrainfogcounter >= TERRAIN_FOG_COUNTER_MAX)
 	{
-		glBufferData(GL_COPY_WRITE_BUFFER, sizeof(TerrainFogBlock) * TERRAIN_FOG_COUNTER_MAX, nullptr, GL_DYNAMIC_DRAW);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(TerrainFogBlock) * TERRAIN_FOG_COUNTER_MAX, nullptr, GL_DYNAMIC_DRAW);
 		terrainfogcounter = 0;
 	}
-	
-	glBufferSubData(GL_COPY_WRITE_BUFFER, terrainfogcounter * sizeof(TerrainFogBlock), sizeof(TerrainFogBlock), &block);
+
+	glBufferSubData(GL_UNIFORM_BUFFER, terrainfogcounter * sizeof(TerrainFogBlock), sizeof(TerrainFogBlock), &block);
 	glBindBufferRange(GL_UNIFORM_BUFFER, TERRAIN_FOG_BINDING, terrainfogbuffername, terrainfogcounter * sizeof(TerrainFogBlock), sizeof(TerrainFogBlock));
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 #ifdef _DEBUG
 	GLenum err = glGetError();
 	if (err != GL_NO_ERROR)
@@ -659,12 +701,16 @@ void GL4Renderer::UpdateTerrainFog(float color[4], float start, float end)
 
 void GL4Renderer::UpdateLegacyBlock(float* projection, float* modelview)
 {
+	if (!legacycommonbuffername)
+		return;
+
 	CommonBlock newblock;
 	memcpy(newblock.projection, projection, sizeof(newblock.projection));
 	memcpy(newblock.modelview, modelview, sizeof(newblock.modelview));
 
-	glBindBuffer(GL_COPY_WRITE_BUFFER, legacycommonbuffername);
-	glBufferSubData(GL_COPY_WRITE_BUFFER, 0, sizeof(CommonBlock), &newblock);
+	glBindBuffer(GL_UNIFORM_BUFFER, legacycommonbuffername);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(CommonBlock), &newblock);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 #ifdef _DEBUG
 	GLenum err = glGetError();
@@ -775,7 +821,7 @@ void ShaderProgram::CreateCommonBindings(int bindindex)
 	{
 		glUniformBlockBinding(m_name, uboindex, SPECULAR_BINDING);
 	}
-	
+
 	//Find RoomBlock
 	uboindex = glGetUniformBlockIndex(m_name, "RoomBlock");
 	if (uboindex != GL_INVALID_INDEX)

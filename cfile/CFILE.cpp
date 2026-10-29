@@ -29,6 +29,7 @@
 #else
 //Linux Build Includes
 #include "linux/linux_fix.h"
+#include <dirent.h>
 #endif
 #include "BYTESWAP.H"
 #include "pserror.h"
@@ -72,6 +73,35 @@ struct path_entry
 	ubyte	specific;			//if non-zero, only for specific extensions
 };
 
+static int d3_stricmp_ascii(const char *s1, const char *s2)
+{
+	while (*s1 && *s2) {
+		unsigned char c1 = (unsigned char)*s1;
+		unsigned char c2 = (unsigned char)*s2;
+
+		if (c1 >= 'A' && c1 <= 'Z') c1 += ('a' - 'A');
+		if (c2 >= 'A' && c2 <= 'Z') c2 += ('a' - 'A');
+
+		if (c1 != c2) return (int)c1 - (int)c2;
+		s1++;
+		s2++;
+	}
+
+	unsigned char c1 = (unsigned char)*s1;
+	unsigned char c2 = (unsigned char)*s2;
+	if (c1 >= 'A' && c1 <= 'Z') c1 += ('a' - 'A');
+	if (c2 >= 'A' && c2 <= 'Z') c2 += ('a' - 'A');
+
+	return (int)c1 - (int)c2;
+}
+
+static int hog_entry_case_cmp(const void *a, const void *b)
+{
+	const library_entry *entryA = (const library_entry *)a;
+	const library_entry *entryB = (const library_entry *)b;
+	return d3_stricmp_ascii(entryA->name, entryB->name);
+}
+
 #define MAX_PATHS			100
 path_entry paths[MAX_PATHS];
 int N_paths=0;
@@ -82,6 +112,20 @@ library *Libraries=NULL;
 int lib_handle=0;
 static int Library_search_exclusion_handle = 0;
 void cf_Close();
+
+#define MAX_BASE_DIRS 20
+static char Base_directories[MAX_BASE_DIRS][_MAX_PATH];
+static int N_base_directories = 0;
+
+void cf_AddBaseDirectory(const char *path)
+{
+	if (!path || !*path || N_base_directories >= MAX_BASE_DIRS)
+		return;
+
+	ddio_GetFullPath(Base_directories[N_base_directories], path);
+	mprintf((0, "CFILE: Added base directory %s\n", Base_directories[N_base_directories]));
+	N_base_directories++;
+}
 
 struct open_cfile_node
 {
@@ -133,6 +177,68 @@ void ThrowCFileError(int type,CFILE *file,char *msg)
 	throw &cfe;
 }
 
+// Attempts to resolve a relative filename against registered Base_directories.
+// Safely matches case-insensitive filenames on Linux without triggering glob() recursion.
+bool cf_LocatePath(const char *filename, char *out_path)
+{
+	if (!filename || !*filename || !out_path)
+		return false;
+
+	// Default fallback to direct filename input
+	strcpy(out_path, filename);
+
+	// 1. Direct path check (exact match first)
+	FILE *fp = fopen(filename, "rb");
+	if (fp)
+	{
+		fclose(fp);
+		return true;
+	}
+
+	if (N_base_directories <= 0)
+		return false;
+
+	// 2. Iterate backwards through registered base directories
+	for (int i = N_base_directories - 1; i >= 0; i--)
+	{
+		if (i >= MAX_BASE_DIRS || !Base_directories[i][0])
+			continue;
+
+		char temp_path[_MAX_PATH * 2];
+		ddio_MakePath(temp_path, Base_directories[i], filename, NULL);
+
+		// Try exact match first
+		fp = fopen(temp_path, "rb");
+		if (fp)
+		{
+			fclose(fp);
+			strcpy(out_path, temp_path);
+			return true;
+		}
+
+#ifdef __LINUX__
+		// Safe case-insensitive scan of directory entries (avoids glob re-entrancy)
+		DIR *dir = opendir(Base_directories[i]);
+		if (dir)
+		{
+			struct dirent *entry;
+			while ((entry = readdir(dir)) != NULL)
+			{
+				if (!stricmp(entry->d_name, filename))
+				{
+					ddio_MakePath(out_path, Base_directories[i], entry->d_name, NULL);
+					closedir(dir);
+					return true;
+				}
+			}
+			closedir(dir);
+		}
+#endif
+	}
+
+	return false;
+}
+
 //Opens a HOG file.  Future calls to cfopen(), etc. will look in this HOG.
 //Parameters:  libname - the path & filename of the HOG file 
 //NOTE:	libname must be valid for the entire execution of the program.  Therefore, it should either
@@ -148,7 +254,11 @@ int cf_OpenLibrary(const char *libname)
 	tHogHeader header;
 	tHogFileEntry entry;
 	
-	fp = fopen( libname, "rb" );
+	// Resolve libname across Base_directories
+	char real_libpath[_MAX_PATH * 2];
+	cf_LocatePath(libname, real_libpath);
+
+	fp = fopen( real_libpath, "rb" );
 	if ( fp == NULL ) 
 		return 0;	//CF_NO_FILE;
 	fread( id, strlen(HOG_TAG_STR), 1, fp );
@@ -170,7 +280,7 @@ int cf_OpenLibrary(const char *libname)
 		fclose(fp);
 		return 0;
 	}
-	strncpy(lib->name, libname, sizeof(lib->name));
+	strncpy(lib->name, real_libpath, sizeof(lib->name));
 	lib->name[sizeof(lib->name) - 1] = '\0';
 
 	//read HOG header
@@ -205,8 +315,8 @@ int cf_OpenLibrary(const char *libname)
 			fclose(fp);
 			return 0;
 		}
-		//Make sure files are in order
-		ASSERT((i==0) || (stricmp(entry.name,lib->entries[i-1].name) >= 0));
+		//Make sure files are in order (ASCII-safe)
+		//ASSERT((i==0) || (d3_stricmp_ascii(entry.name, lib->entries[i-1].name) >= 0));
 		//Copy into table
 		strcpy(lib->entries[i].name, entry.name);
 		lib->entries[i].flags  = entry.flags;
@@ -215,6 +325,8 @@ int cf_OpenLibrary(const char *libname)
 		lib->entries[i].timestamp  = entry.timestamp;
 		offset += lib->entries[i].length;
 	}
+	//sort binary searches for case sensitive filesystems
+	qsort(lib->entries, lib->nfiles, sizeof(library_entry), hog_entry_case_cmp);
 	//assign a handle
 	lib->handle = ++lib_handle;
 	//Save the file pointer
@@ -344,7 +456,7 @@ CFILE *cf_OpenFileInLibrary(const char *filename,int libhandle)
 	for (;;)
 	{
 		i = (first + last) / 2;
-		c = stricmp(filename, lib->entries[i].name);	//compare to current
+		c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 		if (c == 0) //found it
 		{
 			found = 1;
@@ -357,6 +469,21 @@ CFILE *cf_OpenFileInLibrary(const char *filename,int libhandle)
 		else				//search key before check key
 			last = i - 1;
 	}
+
+	// Linux fix: If binary search failed, fall back to linear search
+	if (!found)
+	{
+		for (int j = 0; j < lib->nfiles; j++)
+		{
+			if (!stricmp(filename, lib->entries[j].name))
+			{
+				i = j;
+				found = 1;
+				break;
+			}
+		}
+	}
+
 
 	if(!found)
 		return NULL;	// file not in library
@@ -416,7 +543,7 @@ CFILE *open_file_in_lib(const char *filename)
 		for (;;)
 		{
 			i = (first + last) / 2;
-			c = stricmp(filename, lib->entries[i].name);	//compare to current
+			c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 			if (c == 0) //found it
 			{
 				found = 1;
@@ -430,10 +557,25 @@ CFILE *open_file_in_lib(const char *filename)
 				last = i - 1;
 		}
 
+		// Linux fix: If binary search failed, fall back to linear search
+		if (!found)
+		{
+			for (int j = 0; j < lib->nfiles; j++)
+			{
+				if (!stricmp(filename, lib->entries[j].name))
+				{
+					i = j;
+					found = 1;
+					break;
+				}
+			}
+		}
+
+
 		if (found) 
 		{
-  			FILE *fp;
-  			int r;
+			FILE *fp;
+			int r;
 			//See if there's an available FILE
 			if (lib->file) 
 			{
@@ -862,7 +1004,16 @@ CFILE *cfopen(const char * filename, const char * mode)
 				goto got_file;
 		}
 	}
-	//Lastly, try the hog files
+
+	// ADDED: Search Base_directories for loose files on disk
+	for (i = N_base_directories - 1; i >= 0; i--)
+	{
+		cfile = open_file_in_directory(filename, mode, Base_directories[i]);
+		if (cfile)
+			goto got_file;
+	}
+
+	// Lastly, try the hog files
 	cfile = open_file_in_lib(filename);
 
 got_file:;
@@ -1562,7 +1713,7 @@ bool cf_ReadHogFileEntry(int libr, const char *filename, tHogFileEntry *entry, i
 			do 
 			{
 				i = (first + last) / 2;
-				c = stricmp(filename,lib->entries[i].name);	//compare to current
+				c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 		
 				if (c == 0) //found it
 				{

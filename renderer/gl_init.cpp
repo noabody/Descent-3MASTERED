@@ -122,7 +122,7 @@ void GL4Renderer::SetDefaults()
 #if defined(SDL3)
 static GLADapiproc opengl_GLADLoad(const char* name)
 {
-	void* ptr = SDL_GL_GetProcAddress(name);
+	void* ptr = reinterpret_cast<void*>(SDL_GL_GetProcAddress(name));
 	return (GLADapiproc)ptr;
 }
 
@@ -502,7 +502,9 @@ void GL4Renderer::ApplySwapInterval()
 		mprintf((0, "SDL_GL_SetSwapInterval(%d) failed: %s\n", interval, SDL_GetError()));
 		return;
 	}
-	mprintf((0, "OpenGL swap interval requested %d, actual %d.\n", interval, SDL_GL_GetSwapInterval()));
+	int actual_interval = 0;
+	SDL_GL_GetSwapInterval(&actual_interval);
+	mprintf((0, "OpenGL swap interval requested %d, actual %d.\n", interval, actual_interval));
 #elif defined(WIN32)
 	if (!dwglSwapIntervalEXT)
 	{

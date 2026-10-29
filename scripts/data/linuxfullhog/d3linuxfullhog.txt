@@ -29,7 +29,6 @@ Y2K.so
 aigame2.so
 aigame4.so
 clutter.so
-d3linuxfullhog.txt
 generic.so
 level1.so
 level10.so
@@ -45,7 +44,7 @@ level8.so
 levelS2.so
 merc5.so
 orbital.so
-polaris.so
+Polaris.so
 AIGAMEi.STR
 Anarchy.str
 Anarchyi.str

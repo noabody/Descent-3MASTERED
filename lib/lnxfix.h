@@ -18,11 +18,19 @@
 
 #ifndef LINUX_FIX_H_
 #define LINUX_FIX_H_
-#if defined(__LINUX__)
 
+#if defined(__LINUX__) || defined(LINUX)
+#include "linux/linux_fix.h"
+
+#ifndef stricmp
 #define stricmp(x,y) strcasecmp(x,y)
+#endif
+
+#ifndef _vsnprintf
 #define _vsnprintf(a,b,c,d) vsnprintf(a,b,c,d)
+#endif
 
 extern bool Dedicated_server;
 #endif
-#endif
+
+#endif // LINUX_FIX_H_

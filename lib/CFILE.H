@@ -67,6 +67,8 @@ int cf_OpenLibrary(const char *libname);
 //Parameters:  handle: the handle returned by cf_OpenLibrary()
 void cf_CloseLibrary(int handle);
 
+void cf_AddBaseDirectory(const char *path);
+
 // Excludes one HOG from normal filename-based lookup. Explicit
 // cf_OpenFileInLibrary() calls are unaffected. Returns the previous handle.
 int cf_SetLibrarySearchExclusion(int handle);

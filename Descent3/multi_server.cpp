@@ -2610,7 +2610,7 @@ void MultiSendClientExecuteDLL(int eventnum, int me_objnum, int it_objnum, int t
 void MultiResetSettings()
 {
 	strcpy(Netgame.scriptname, "Anarchy.d3m");
-	strcpy(Netgame.connection_name, "Direct TCP~IP");
+	strcpy(Netgame.connection_name, "Direct_TCP~IP");
 	strcpy(Netgame.mission, "fury.mn3");
 	strcpy(Netgame.name, "Generic D3 Game");
 
