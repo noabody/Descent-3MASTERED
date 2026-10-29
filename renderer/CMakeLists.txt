@@ -13,17 +13,16 @@ SET (RENDERER_SOURCES
 		renderer/gl_mesh.h
 		renderer/gl_shader.cpp
 		renderer/gl_shadersource.cpp
-		
+
 		renderer/gl_shared.h
-		
+
 		#renderer switchboard
 		renderer/renderer.cpp
 		renderer/IRenderer.h
-		
+
 		#GLAD gl loader
 		renderer/gl.c
-		renderer/wgl.c
-		
+
 		#3D system
 		renderer/clipper.cpp
 		renderer/draw.cpp
@@ -31,5 +30,9 @@ SET (RENDERER_SOURCES
 		renderer/points.cpp
 		renderer/setup.cpp
 		renderer/transforms.cpp)
+
+IF (WIN32)
+SET (RENDERER_SOURCES ${RENDERER_SOURCES} renderer/wgl.c)
+ENDIF ()
 
 set (RENDERER_SOURCES ${RENDERER_SOURCES} PARENT_SCOPE)

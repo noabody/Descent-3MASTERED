@@ -162,6 +162,13 @@ static void GL_DrawFramebufferQuadInternal(GLuint target, unsigned int x, unsign
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	// Ensure the draw buffer attachment enum matches the bound framebuffer target
+	if (target == 0) {
+		glDrawBuffer(GL_BACK);
+	} else {
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buffer);
+	}
 
 	if (clear_target)
 	{
@@ -596,6 +603,13 @@ void Framebuffer::BlitToRaw(GLuint target, unsigned int x, unsigned int y, unsig
 {
 	SubFramebufferBlit(GL_COLOR_BUFFER_BIT);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
+	// Ensure the draw buffer assignment matches the bound framebuffer target
+	if (target == 0) {
+		glDrawBuffer(GL_BACK);
+	} else {
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buffer);
+	}
 
 #ifdef _DEBUG
 	GLenum err = glGetError();
@@ -630,6 +644,9 @@ void Framebuffer::BlitDepthTo(GLuint target, unsigned int x, unsigned int y, uns
 
 void Framebuffer::BlitTo(GLuint target, unsigned int x, unsigned int y, unsigned int w, unsigned int h, bool linear_filter)
 {
+	if (Handle() == 0 || w == 0 || h == 0 || Width() == 0 || Height() == 0)
+		return;
+
 	SubFramebufferBlit(GL_COLOR_BUFFER_BIT);
 
 #ifdef _DEBUG
@@ -640,6 +657,23 @@ void Framebuffer::BlitTo(GLuint target, unsigned int x, unsigned int y, unsigned
 	}
 #endif
 
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
+
+	// Verify the target draw framebuffer is complete before drawing or clearing
+	if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+	{
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		return;
+	}
+
+	// Explicitly select the target color attachment buffer
+	if (target == 0) {
+		glDrawBuffer(GL_BACK);
+	} else {
+		const GLenum draw_buf = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buf);
+	}
+
 	glBindVertexArray(fbVAOName);
 	GLint oldviewport[4];
 	GLboolean blend_enabled = glIsEnabled(GL_BLEND);
@@ -647,7 +681,6 @@ void Framebuffer::BlitTo(GLuint target, unsigned int x, unsigned int y, unsigned
 	glViewport(x, y, w, h);
 	glDisable(GL_BLEND);
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
 #ifdef _DEBUG
@@ -1077,49 +1110,69 @@ void PostProtectionMaskResources::AttachToFramebuffer(GLuint framebuffer)
 
 void PostProtectionMaskResources::ClearAttached(GLuint framebuffer)
 {
-	if (mask_texture == 0)
+	// Skip default window backbuffer (0) or invalid mask textures
+	if (mask_texture == 0 || framebuffer == 0)
 		return;
 
-	GLint old_draw = 0;
-	GLint old_draw_buffer = 0;
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &old_draw);
-	glGetIntegerv(GL_DRAW_BUFFER, &old_draw_buffer);
+	GLint old_fbo = 0;
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &old_fbo);
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
-	resolve_valid = false;
-	GLenum draw_buffer = GL_COLOR_ATTACHMENT2;
-	glDrawBuffers(1, &draw_buffer);
-	const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	glClearBufferfv(GL_COLOR, 0, zero);
-	UseSceneDrawBuffers(framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, old_draw);
-	if ((GLuint)old_draw != framebuffer)
-		glDrawBuffer(old_draw_buffer);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, old_fbo);
+		return;
+	}
+
+	GLint att2_type = GL_NONE;
+	glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2,
+		GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &att2_type);
+
+	if (att2_type != GL_NONE && att2_type != 0)
+	{
+		resolve_valid = false;
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT2;
+		glDrawBuffers(1, &draw_buffer);
+		const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		glClearBufferfv(GL_COLOR, 0, zero);
+
+		const GLenum default_draw = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &default_draw);
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, old_fbo);
 }
 
-void PostProtectionMaskResources::UseSceneDrawBuffers(GLuint framebuffer, bool include_motion_vectors,
-	bool include_motion_object_ids)
+void PostProtectionMaskResources::UseSceneDrawBuffers(GLuint framebuffer, bool include_motion_vectors, bool include_motion_object_ids)
 {
+	if (framebuffer <= 1)
+		return;
+
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
-	const GLenum draw_buffers[5] =
+
+	if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 	{
-		GL_COLOR_ATTACHMENT0,
-		static_cast<GLenum>(include_motion_vectors ? GL_COLOR_ATTACHMENT1 : GL_NONE),
-		static_cast<GLenum>(mask_texture != 0 ? GL_COLOR_ATTACHMENT2 : GL_NONE),
-		GL_NONE,
-		static_cast<GLenum>(include_motion_object_ids ? GL_COLOR_ATTACHMENT4 : GL_NONE)
-	};
-	if (include_motion_object_ids)
-		glDrawBuffers(5, draw_buffers);
-	else if (mask_texture != 0)
-		glDrawBuffers(4, draw_buffers);
-	else if (include_motion_vectors)
+		return;
+	}
+
+	// Inspect if GL_COLOR_ATTACHMENT2 is explicitly populated on this FBO
+	GLint att2_type = GL_NONE;
+	glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT2,
+		GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &att2_type);
+
+	if (att2_type != GL_NONE && att2_type != 0 && mask_texture != 0)
+	{
+		const GLenum draw_buffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT2 };
 		glDrawBuffers(2, draw_buffers);
+	}
 	else
-		glDrawBuffer(GL_COLOR_ATTACHMENT0);
-	GL_ConfigurePostMaskBlend();
-	glColorMaski(2, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	{
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buffer);
+	}
+
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
 }
 

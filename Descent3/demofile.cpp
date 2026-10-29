@@ -94,7 +94,7 @@ void PageInAllData(void);
 void DemoToggleRecording()
 {
 	char szfile[_MAX_PATH * 2];
-	szfile[0] = NULL;
+	szfile[0] = '\0';
 	if (Demo_flags == DF_RECORDING)
 	{
 		//Stop recording and close the file
@@ -103,7 +103,7 @@ void DemoToggleRecording()
 		Demo_flags = DF_NONE;
 		AddBlinkingHUDMessage(TXT_DEMOSAVED);
 
-		Demo_fname[0] = NULL;
+		Demo_fname[0] = '\0';
 		return;
 	}
 	else if (Demo_flags == DF_PLAYBACK)
@@ -127,7 +127,7 @@ void DemoToggleRecording()
 		if (!Demo_recording_lock.TryAcquire(demo_lock_path))
 		{
 			AddBlinkingHUDMessage(TXT_DEMOCANTCREATE);
-			Demo_fname[0] = NULL;
+			Demo_fname[0] = '\0';
 			return;
 		}
 		//Try to create the file
@@ -151,7 +151,7 @@ void DemoToggleRecording()
 			//cfopen failed
 			Demo_recording_lock.Release();
 			AddBlinkingHUDMessage(TXT_DEMOCANTCREATE);
-			Demo_fname[0] = NULL;
+			Demo_fname[0] = '\0';
 			return;
 		}
 	}
@@ -1399,7 +1399,7 @@ void DemoAbort(bool deletefile)
 		Demo_flags = DF_NONE;
 		if (deletefile)
 			ddio_DeleteFile(Demo_fname);
-		Demo_fname[0] = NULL;
+		Demo_fname[0] = '\0';
 		return;
 	}
 

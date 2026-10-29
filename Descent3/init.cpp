@@ -1535,7 +1535,7 @@ void InitIOSystems(bool editor)
 		{
 			if(i=='\\')
 			{
-				Base_directory[i] = NULL;
+				Base_directory[i] = '\0';
 			}
 		}
 		mprintf((0,"Using working directory of %s\n",Base_directory));
@@ -1742,6 +1742,21 @@ void InitIOSystems(bool editor)
 	}
 #endif
 
+#if defined(__LINUX__)
+	int engine_linux_hid = -1;
+	ddio_MakePath(fullname, LocalD3Dir, "descent3mastered-linux.hog", nullptr);
+	engine_linux_hid = cf_OpenLibrary(fullname);
+	if (engine_linux_hid == 0)
+	{
+		ddio_MakePath(fullname, LocalD3Dir, "descent3mastered.hog", nullptr);
+		engine_linux_hid = cf_OpenLibrary(fullname);
+		if (engine_linux_hid == 0)
+		{
+			Error("Cannot find descent3mastered.hog file required by the Linux build!");
+		}
+	}
+#endif
+
 	//Try opening a couple of known Mercenary only files
 	if (cfexist("BP_hud.inf")
 		&& cfexist("BlackPyroCockpit.OOF")
@@ -1786,6 +1801,10 @@ void InitIOSystems(bool editor)
 	// Extraction lookup is first-match-wins.  Register the native replacements
 	// before the x86 retail modules with the same names.
 	Osiris_ExtractScriptsFromHog(engine_win_hid, false);
+#endif
+#if defined(__LINUX__)
+	if (engine_linux_hid != 0)
+		Osiris_ExtractScriptsFromHog(engine_linux_hid, false);
 #endif
 	if(extra13_hid != 0)
 		Osiris_ExtractScriptsFromHog(extra13_hid,false);
@@ -2184,7 +2203,7 @@ bool CheckCdForValidity(int cd);
 			pport = strchr(ipparse,':');
 			if(pport)
 			{
-				*pport = NULL;
+				*pport = '\0';
 				pport++;
 				port = atoi(pport);
 			}

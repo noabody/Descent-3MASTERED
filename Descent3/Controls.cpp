@@ -21,7 +21,7 @@
 #include "object.h"
 #include "pserror.h"
 #include "game.h"
-#include "GameLoop.h"
+#include "gameloop.h"
 #include "ddio.h" 
 #include "joystick.h"
 #include "descent.h"

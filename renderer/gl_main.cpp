@@ -458,8 +458,12 @@ static bool GL4RestoreMotionVectorPreserveSnapshot(const GL4MotionVectorPreserve
 	rend_ClearBoundTextures();
 	GL_BindFramebufferTexture(snapshot.texture, 0, GL_LINEAR);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target_framebuffer);
-	const GLenum draw_buffer = GL_COLOR_ATTACHMENT1;
-	glDrawBuffers(1, &draw_buffer);
+	if (target_framebuffer == 0) {
+		glDrawBuffer(GL_BACK);
+	} else {
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT1;
+		glDrawBuffers(1, &draw_buffer);
+	}
 	GLboolean multisample_enabled = glIsEnabled(GL_MULTISAMPLE);
 	if (target_multisampled)
 		glEnable(GL_MULTISAMPLE);
@@ -1256,7 +1260,7 @@ static void GL4PerfPresentState(const char* phase, int framebuffer_slot, bool po
 
 	int swap_interval = -999;
 #if defined(SDL3)
-	swap_interval = SDL_GL_GetSwapInterval();
+	SDL_GL_GetSwapInterval(&swap_interval);
 #elif defined(WIN32)
 	if (dwglGetSwapIntervalEXT)
 		swap_interval = dwglGetSwapIntervalEXT();
@@ -1807,31 +1811,82 @@ void GL4Renderer::StartFrame(int x1, int y1, int x2, int y2, int clear_flags)
 
 	if (framebuffer_ok)
 	{
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffers[framebuffer_current_draw].Handle());
-		if (glclearflags & GL_COLOR_BUFFER_BIT)
+		GLuint current_fbo = framebuffers[framebuffer_current_draw].Handle();
+
+		// Bind BOTH read and draw targets to the active FBO handle
+		glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+		
+		// Skip protection mask clearing on FBO <= 1 (2D UI and Intro passes)
+		if (!post_protection_mask_cleared_this_frame && framebuffer_current_draw > 1)
 		{
-			const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
-			glDrawBuffers(1, &draw_buffer);
-			glReadBuffer(GL_COLOR_ATTACHMENT0);
+			post_protection_mask.ClearAttached(current_fbo);
+			post_protection_mask_dirty = false;
+			post_protection_mask_cleared_this_frame = true;
+			terrain_post_mask_default_initialized = false;
+		}
+		else if (framebuffer_current_draw <= 1)
+		{
+			post_protection_mask_cleared_this_frame = true;
+		}
+
+		if (framebuffer_current_draw > 1 && !modal_ui_frame_active)
+		{
+			UseSceneDrawBuffers();
+		}
+		else
+		{
+			if (current_fbo == 0)
+			{
+				const GLenum draw_buf = GL_BACK;
+				glDrawBuffers(1, &draw_buf);
+				glReadBuffer(GL_BACK);
+			}
+			else
+			{
+				const GLenum draw_buf = GL_COLOR_ATTACHMENT0;
+				glDrawBuffers(1, &draw_buf);
+				glReadBuffer(GL_COLOR_ATTACHMENT0);
+			}
 		}
 	}
 	GL4ClearBuffers(glclearflags);
 	if (framebuffer_ok)
 	{
-		if (!post_protection_mask_cleared_this_frame)
+		// Skip protection mask clearing on FBO <= 1 (2D UI and Intro passes)
+		if (!post_protection_mask_cleared_this_frame && framebuffer_current_draw > 1)
 		{
 			post_protection_mask.ClearAttached(framebuffers[framebuffer_current_draw].Handle());
 			post_protection_mask_dirty = false;
 			post_protection_mask_cleared_this_frame = true;
 			terrain_post_mask_default_initialized = false;
 		}
-		if (MotionVectorTargetEnabled() && !MotionVectorsFrozen() && !motion_vectors_cleared_this_frame)
+		else if (framebuffer_current_draw <= 1)
 		{
-			motion_vectors.ClearAttached(framebuffers[framebuffer_current_draw].Handle());
-			motion_vectors_dirty = false;
-			motion_vectors_cleared_this_frame = true;
+			post_protection_mask_cleared_this_frame = true;
 		}
-		UseSceneDrawBuffers();
+
+		if (framebuffer_current_draw > 1 && !modal_ui_frame_active)
+		{
+			UseSceneDrawBuffers();
+		}
+		else
+		{
+			GLuint handle = framebuffers[framebuffer_current_draw].Handle();
+			glBindFramebuffer(GL_FRAMEBUFFER, handle);
+
+			if (handle == 0)
+			{
+				const GLenum draw_buf = GL_BACK;
+				glDrawBuffers(1, &draw_buf);
+				glReadBuffer(GL_BACK);
+			}
+			else
+			{
+				const GLenum draw_buf = GL_COLOR_ATTACHMENT0;
+				glDrawBuffers(1, &draw_buf);
+				glReadBuffer(GL_COLOR_ATTACHMENT0);
+			}
+		}
 	}
 	if (ao_suppression_draw_value != 0.0f)
 		legacy_draw_uniforms_dirty = true;
@@ -2019,7 +2074,7 @@ void GL4Renderer::GetVrrInfo(renderer_vrr_info* info)
 	if (dwglGetSwapIntervalEXT)
 		info->swap_interval = dwglGetSwapIntervalEXT();
 #elif defined(SDL3)
-	info->swap_interval = SDL_GL_GetSwapInterval();
+	SDL_GL_GetSwapInterval(&info->swap_interval);
 #endif
 	info->fullscreen = OpenGL_preferred_state.fullscreen;
 	// The Win32 "fullscreen" mode is a borderless desktop-sized window, not
@@ -2553,7 +2608,7 @@ void GL4Renderer::StartCockpitSceneFrame(int x1, int y1, int x2, int y2)
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 	const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
 	glDrawBuffers(1, &draw_buffer);
-	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glReadBuffer(GL_BACK);
 
 	glClearColor(0.0, 0.0, 0.0, 0.0);
 	GL4ClearBuffers(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -2700,9 +2755,14 @@ void GL4Renderer::ClearPostPresentAlpha()
 		glEnable(GL_SCISSOR_TEST);
 	else
 		glDisable(GL_SCISSOR_TEST);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, old_draw);
 	if ((GLuint)old_draw != post_present_framebuffer.Handle())
-		glDrawBuffer(old_draw_buffer);
+	{
+		if (old_draw == 0) {
+			glDrawBuffer(GL_BACK);
+		} else {
+			glDrawBuffer(old_draw_buffer);
+		}
+	}
 }
 
 void GL4Renderer::BlendPostCompositeOverPostPresent()
@@ -2885,6 +2945,17 @@ void GL4Renderer::StartPostPresentFrame(int x1, int y1, int x2, int y2, int clea
 		glclearflags |= GL_COLOR_BUFFER_BIT;
 	}
 	GL4ClearBuffers(glclearflags);
+	if (modal_ui_frame_active)
+	{
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffers[framebuffer_current_draw].Handle());
+		const GLenum draw_buf = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buf);
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+	}
+	else
+	{
+		UseSceneDrawBuffers();
+	}
 
 	glDisable(GL_MULTISAMPLE);
 	OpenGL_state.clip_x1 = x1;
@@ -3213,6 +3284,8 @@ void GL4Renderer::CompositePendingModalUI()
 	rend_ClearBoundTextures();
 	ShaderProgram::ClearBinding();
 	RestoreLegacy();
+	glDrawBuffer(GL_BACK);
+	glReadBuffer(GL_BACK);
 }
 
 void GL4Renderer::SetModalUIGamma(bool enabled)

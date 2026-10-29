@@ -289,14 +289,14 @@ ENDIF()
 
 IF (UNIX AND NOT APPLE)
 	SET (MAIN_SOURCES ${MAIN_SOURCES}
-		Descent3/loki_utils.cpp
-		Descent3/lnxmain.cpp)
+		Descent3/loki_utils.c
+		Descent3/sdlmain.cpp)
 ENDIF()
 
 IF (APPLE)
 	SET (MAIN_SOURCES ${MAIN_SOURCES}
-		Descent3/loki_utils.cpp
-		Descent3/lnxmain.cpp
+		Descent3/loki_utils.c
+		Descent3/sdlmain.cpp
 		Descent3/SDLMain.m)
 ENDIF()
 

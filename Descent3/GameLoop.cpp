@@ -97,6 +97,7 @@
 #include "viseffect.h"
 #include "args.h"
 #include "scorch.h"
+bool Debug_print_block = false;
 
 #ifdef EDITOR
 #include "editor\d3edit.h"

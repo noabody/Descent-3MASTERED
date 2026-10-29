@@ -716,7 +716,7 @@ void llsOpenAL::AdjustSound(int sound_uid, pos_state* cur_pos, float adjusted_vo
 	int id = sound_uid & 255;
 	if (!Initalized) return;
 	//gotta trap nans because apparently sometimes objects exist at undefined locations nice
-	if (!SoundEntries || id < 0 || id >= NumSoundChannels || SoundEntries[id].soundUID != sound_uid || isnan<float>(cur_pos->position->x)) return;
+	if (!SoundEntries || id < 0 || id >= NumSoundChannels || SoundEntries[id].soundUID != sound_uid || std::isnan(cur_pos->position->x)) return;
 
 	ALuint handle = SoundEntries[id].handle;
 	//Undo the source relative hack. 
@@ -1495,7 +1495,7 @@ void llsOpenAL::InitSource3D(uint32_t handle, sound_info* soundInfo, pos_state* 
 	alSourcei(handle, AL_LOOPING, AL_FALSE);
 
 	if (EffectsSupported)
-		alSource3i(handle, AL_AUXILIARY_SEND_FILTER, AuxEffectSlot, 0, NULL);
+		alSource3i(handle, AL_AUXILIARY_SEND_FILTER, AuxEffectSlot, 0, AL_FILTER_NULL);
 	ALErrorCheck("Setting 3D sound source effect.");
 }
 
@@ -1574,7 +1574,7 @@ void llsOpenAL::SoundCleanup(int soundID)
 	//Clear the sound's send filter, if it has one. 
 	if (EffectsSupported)
 	{
-		alSource3i(SoundEntries[soundID].handle, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, NULL);
+		alSource3i(SoundEntries[soundID].handle, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL);
 		ALErrorCheck("Clearing source send filter");
 	}
 

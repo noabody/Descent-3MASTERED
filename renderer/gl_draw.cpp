@@ -264,9 +264,23 @@ static void GL4UseSceneDrawBuffersForCurrentDraw(bool include_motion_vectors, bo
 
 static void GL4UseSceneColorDrawBuffer()
 {
-	const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
-	glDrawBuffers(1, &draw_buffer);
-	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	GLint current_draw_fbo = 0;
+	GLint current_read_fbo = 0;
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_draw_fbo);
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &current_read_fbo);
+
+	if (current_draw_fbo == 0) {
+		glDrawBuffer(GL_BACK);
+	} else {
+		const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buffer);
+	}
+
+	if (current_read_fbo == 0) {
+		glReadBuffer(GL_BACK);
+	} else {
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+	}
 }
 
 bool GL4Renderer::UsesExactRoomFogMultiply() const
@@ -836,7 +850,11 @@ void GL4Renderer::DrawMotionVectorDebugPreview(int supersampling_factor)
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, old_draw);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, old_read);
-	glReadBuffer(old_read_buffer);
+	if (old_read == 0) {
+		glReadBuffer(GL_BACK);
+	} else {
+		glReadBuffer(old_read_buffer);
+	}
 	glViewport(old_viewport[0], old_viewport[1], old_viewport[2], old_viewport[3]);
 	glBlendFuncSeparate(old_src_rgb, old_dst_rgb, old_src_alpha, old_dst_alpha);
 	if (blend_was_enabled) glEnable(GL_BLEND); else glDisable(GL_BLEND);
@@ -851,7 +869,30 @@ void GL4Renderer::DrawMotionVectorDebugPreview(int supersampling_factor)
 
 void GL4Renderer::UseSceneDrawBuffers()
 {
-	post_protection_mask.UseSceneDrawBuffers(framebuffers[framebuffer_current_draw].Handle(), false, false);
+	if (!framebuffer_ok)
+		return;
+
+	GLuint current_fbo = framebuffers[framebuffer_current_draw].Handle();
+
+	// If active target is window default framebuffer 0, bind GL_BACK instead of GL_COLOR_ATTACHMENT0
+	if (current_fbo == 0 || framebuffer_current_draw <= 1 || modal_ui_frame_active)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+		const GLenum draw_buf = (current_fbo == 0) ? GL_BACK : GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &draw_buf);
+
+		if (current_fbo == 0)
+		{
+			glReadBuffer(GL_BACK);
+		}
+		else
+		{
+			glReadBuffer(GL_COLOR_ATTACHMENT0);
+		}
+		return;
+	}
+
+	post_protection_mask.UseSceneDrawBuffers(current_fbo, false, false); 
 }
 
 static void GL4SetDrawVertexAttributes()
@@ -885,14 +926,17 @@ static void GL4SetDrawVertexAttributes()
 	glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex), (const void*)offsetof(gl_vertex, motion_previous_world_position));
 
 	//attribs 7-14: perspective-correct per-vertex field static specular sources
+	const uintptr_t base_center_offset = offsetof(gl_vertex, field_specular_center);
+	const uintptr_t base_color_offset = offsetof(gl_vertex, field_specular_color);
+
 	for (int i = 0; i < MAX_SPECULARS; i++)
 	{
 		glEnableVertexAttribArray(7 + i);
 		glVertexAttribPointer(7 + i, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex),
-			(const void*)offsetof(gl_vertex, field_specular_center[i]));
+			(const void*)(base_center_offset + i * sizeof(gl_vertex::field_specular_center[0])));
 		glEnableVertexAttribArray(11 + i);
 		glVertexAttribPointer(11 + i, 4, GL_FLOAT, GL_FALSE, sizeof(gl_vertex),
-			(const void*)offsetof(gl_vertex, field_specular_color[i]));
+			(const void*)(base_color_offset + i * sizeof(gl_vertex::field_specular_color[0])));
 	}
 }
 
@@ -1034,6 +1078,17 @@ void GL4Renderer::InitRetainedDrawBuffer()
 		glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(legacy_block), &legacy_block);
 	glBindBufferRange(GL_UNIFORM_BUFFER, GL4_RETAINED_DRAW_BINDING,
 		retained_draw_buffer, 0, sizeof(legacy_block));
+
+	if (!specularbuffername) {
+		glGenBuffers(1, &specularbuffername);
+		glBindBuffer(GL_UNIFORM_BUFFER, specularbuffername);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(SpecularBlock), nullptr, GL_DYNAMIC_DRAW);
+	}
+	if (!legacycommonbuffername) {
+		glGenBuffers(1, &legacycommonbuffername);
+		glBindBuffer(GL_UNIFORM_BUFFER, legacycommonbuffername);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(CommonBlock), nullptr, GL_DYNAMIC_DRAW);
+	}
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 	retained_draw_buffer_cursor = 1;
 	retained_draw_buffer_active_segment = -1;
@@ -2881,6 +2936,7 @@ bool GL4Renderer::BeginRetainedPolymodelDraw(const renderer_retained_polymodel_d
 	block.phong_direction[0] = per_pixel_light_direction.x;
 	block.phong_direction[1] = per_pixel_light_direction.y;
 	block.phong_direction[2] = per_pixel_light_direction.z;
+	block.phong_direction[3] = 0.0f;
 	block.modes0[0] = 1;
 	block.modes0[1] = draw->legacy_depth ? 1 : 0;
 	block.modes0[2] = draw->legacy_world_projection ? 1 : 0;

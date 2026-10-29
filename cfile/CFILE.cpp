@@ -72,6 +72,35 @@ struct path_entry
 	ubyte	specific;			//if non-zero, only for specific extensions
 };
 
+static int d3_stricmp_ascii(const char *s1, const char *s2)
+{
+	while (*s1 && *s2) {
+		unsigned char c1 = (unsigned char)*s1;
+		unsigned char c2 = (unsigned char)*s2;
+
+		if (c1 >= 'A' && c1 <= 'Z') c1 += ('a' - 'A');
+		if (c2 >= 'A' && c2 <= 'Z') c2 += ('a' - 'A');
+
+		if (c1 != c2) return (int)c1 - (int)c2;
+		s1++;
+		s2++;
+	}
+
+	unsigned char c1 = (unsigned char)*s1;
+	unsigned char c2 = (unsigned char)*s2;
+	if (c1 >= 'A' && c1 <= 'Z') c1 += ('a' - 'A');
+	if (c2 >= 'A' && c2 <= 'Z') c2 += ('a' - 'A');
+
+	return (int)c1 - (int)c2;
+}
+
+static int hog_entry_case_cmp(const void *a, const void *b)
+{
+	const library_entry *entryA = (const library_entry *)a;
+	const library_entry *entryB = (const library_entry *)b;
+	return d3_stricmp_ascii(entryA->name, entryB->name);
+}
+
 #define MAX_PATHS			100
 path_entry paths[MAX_PATHS];
 int N_paths=0;
@@ -205,8 +234,8 @@ int cf_OpenLibrary(const char *libname)
 			fclose(fp);
 			return 0;
 		}
-		//Make sure files are in order
-		ASSERT((i==0) || (stricmp(entry.name,lib->entries[i-1].name) >= 0));
+		//Make sure files are in order (ASCII-safe)
+		//ASSERT((i==0) || (d3_stricmp_ascii(entry.name, lib->entries[i-1].name) >= 0));
 		//Copy into table
 		strcpy(lib->entries[i].name, entry.name);
 		lib->entries[i].flags  = entry.flags;
@@ -215,6 +244,8 @@ int cf_OpenLibrary(const char *libname)
 		lib->entries[i].timestamp  = entry.timestamp;
 		offset += lib->entries[i].length;
 	}
+	//sort binary searches for case sensitive filesystems
+	qsort(lib->entries, lib->nfiles, sizeof(library_entry), hog_entry_case_cmp);
 	//assign a handle
 	lib->handle = ++lib_handle;
 	//Save the file pointer
@@ -344,7 +375,7 @@ CFILE *cf_OpenFileInLibrary(const char *filename,int libhandle)
 	for (;;)
 	{
 		i = (first + last) / 2;
-		c = stricmp(filename, lib->entries[i].name);	//compare to current
+		c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 		if (c == 0) //found it
 		{
 			found = 1;
@@ -357,6 +388,21 @@ CFILE *cf_OpenFileInLibrary(const char *filename,int libhandle)
 		else				//search key before check key
 			last = i - 1;
 	}
+
+	// Linux fix: If binary search failed, fall back to linear search
+	if (!found)
+	{
+		for (int j = 0; j < lib->nfiles; j++)
+		{
+			if (!stricmp(filename, lib->entries[j].name))
+			{
+				i = j;
+				found = 1;
+				break;
+			}
+		}
+	}
+
 
 	if(!found)
 		return NULL;	// file not in library
@@ -416,7 +462,7 @@ CFILE *open_file_in_lib(const char *filename)
 		for (;;)
 		{
 			i = (first + last) / 2;
-			c = stricmp(filename, lib->entries[i].name);	//compare to current
+			c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 			if (c == 0) //found it
 			{
 				found = 1;
@@ -430,10 +476,25 @@ CFILE *open_file_in_lib(const char *filename)
 				last = i - 1;
 		}
 
+		// Linux fix: If binary search failed, fall back to linear search
+		if (!found)
+		{
+			for (int j = 0; j < lib->nfiles; j++)
+			{
+				if (!stricmp(filename, lib->entries[j].name))
+				{
+					i = j;
+					found = 1;
+					break;
+				}
+			}
+		}
+
+
 		if (found) 
 		{
-  			FILE *fp;
-  			int r;
+			FILE *fp;
+			int r;
 			//See if there's an available FILE
 			if (lib->file) 
 			{
@@ -1562,7 +1623,7 @@ bool cf_ReadHogFileEntry(int libr, const char *filename, tHogFileEntry *entry, i
 			do 
 			{
 				i = (first + last) / 2;
-				c = stricmp(filename,lib->entries[i].name);	//compare to current
+				c = d3_stricmp_ascii(filename, lib->entries[i].name);	//compare to current
 		
 				if (c == 0) //found it
 				{
